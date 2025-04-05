@@ -22,7 +22,7 @@ def get_vectara_config():
 mcp = FastMCP("vectara")
 
 def get_search_config(
-    vectara_corpus_keys: list[str],
+    corpus_keys: list[str],
     n_sentences_before: int,
     n_sentences_after: int,
     lexical_interpolation: float,
@@ -32,7 +32,7 @@ def get_search_config(
             KeyedSearchCorpus(
                 corpus_key=corpus_key,
                 lexical_interpolation=lexical_interpolation
-            ) for corpus_key in vectara_corpus_keys
+            ) for corpus_key in corpus_keys
         ],
         context_configuration=ContextConfiguration(
             sentences_before=n_sentences_before,
@@ -64,7 +64,7 @@ def get_generation_config(
 @mcp.tool()
 async def ask_vectara(
     query: str,
-    corpus_keys: list[str],
+    corpus_keys: list[str] = [],
     n_sentences_before: int = 2,
     n_sentences_after: int = 2,
     lexical_interpolation: float = 0.005,
@@ -77,7 +77,7 @@ async def ask_vectara(
 
     Args:
         query: str, The user query to run - required.
-        corpus_keys: list[str], List of Vectara corpus keys to use for the search - required.
+        corpus_keys: list[str], List of Vectara corpus keys to use for the search - required. Please ask the user to provide one or more corpus keys. 
         n_sentences_before: int, Number of sentences before the answer to include in the context - optional, default is 2.
         n_sentences_after: int, Number of sentences after the answer to include in the context - optional, default is 2.
         lexical_interpolation: float, The amount of lexical interpolation to use - optional, default is 0.005.
@@ -91,7 +91,7 @@ async def ask_vectara(
     if not query:
         return "Query is required."
     if not corpus_keys:
-        return "Corpus keys are required."
+        return "Corpus keys are required. Please ask the user to provide one or more corpus keys."
 
     vectara_config = get_vectara_config()
     vectara_api_key = vectara_config.get("api_key")
@@ -121,17 +121,17 @@ async def ask_vectara(
 @mcp.tool()
 async def search_vectara(
     query: str,
-    corpus_keys: list[str],
-    n_sentences_before: int,
-    n_sentences_after: int,
-    lexical_interpolation: float,
+    corpus_keys: list[str] = [],
+    n_sentences_before: int = 2,
+    n_sentences_after: int = 2,
+    lexical_interpolation: float = 0.005
 ) -> str:
     """
     Run a semantic search query using Vectara, without generation.
 
     Args:
         query: str, The user query to run - required.
-        corpus_keys: list[str], List of Vectara corpus keys to use for the search - required.
+        corpus_keys: list[str], List of Vectara corpus keys to use for the search - required. Please ask the user to provide one or more corpus keys. 
         n_sentences_before: int, Number of sentences before the answer to include in the context - optional, default is 2.
         n_sentences_after: int, Number of sentences after the answer to include in the context - optional, default is 2.
         lexical_interpolation: float, The amount of lexical interpolation to use - optional, default is 0.005.
@@ -142,7 +142,7 @@ async def search_vectara(
     if not query:
         return "Query is required."
     if not corpus_keys:
-        return "Corpus keys are required."
+        return "Corpus keys are required. Please ask the user to provide one or more corpus keys."
 
     vectara_config = get_vectara_config()
     vectara_api_key = vectara_config.get("api_key")
@@ -175,7 +175,7 @@ def cli():
 
     # Run the server with stdio transport
     mcp.run(transport="stdio")
-
+    
 
 if __name__ == "__main__":
     cli()
