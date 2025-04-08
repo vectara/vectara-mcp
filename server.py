@@ -1,8 +1,8 @@
 import os
 import logging
-import uvicorn
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context
+
 from vectara import (
     Vectara, 
     SearchCorporaParameters, GenerationParameters, CitationParameters,
@@ -11,12 +11,6 @@ from vectara import (
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("vectara-mcp-server")
-
-def get_vectara_config():
-    vectara_api_key= os.environ.get("VECTARA_API_KEY")
-    return {
-        "api_key": vectara_api_key,
-    }
 
 # Create the Vectara MCP server
 mcp = FastMCP("vectara")
@@ -64,7 +58,9 @@ def get_generation_config(
 @mcp.tool()
 async def ask_vectara(
     query: str,
+    ctx: Context,
     corpus_keys: list[str] = [],
+    api_key: str = "",
     n_sentences_before: int = 2,
     n_sentences_after: int = 2,
     lexical_interpolation: float = 0.005,
@@ -78,6 +74,7 @@ async def ask_vectara(
     Args:
         query: str, The user query to run - required.
         corpus_keys: list[str], List of Vectara corpus keys to use for the search - required. Please ask the user to provide one or more corpus keys. 
+        api_key: str, The Vectara API key - required.
         n_sentences_before: int, Number of sentences before the answer to include in the context - optional, default is 2.
         n_sentences_after: int, Number of sentences after the answer to include in the context - optional, default is 2.
         lexical_interpolation: float, The amount of lexical interpolation to use - optional, default is 0.005.
@@ -92,11 +89,15 @@ async def ask_vectara(
         return "Query is required."
     if not corpus_keys:
         return "Corpus keys are required. Please ask the user to provide one or more corpus keys."
+    if not api_key:
+        return "API key is required. Please provide your Vectara API key."
 
-    vectara_config = get_vectara_config()
-    vectara_api_key = vectara_config.get("api_key")
+    if ctx:
+        ctx.info(f"Running Vectara RAG query: {query}")
     try:
-        client = Vectara(api_key=vectara_api_key)
+        client = Vectara(api_key=api_key)
+        if ctx:
+            await ctx.report_progress(0, 1)
         res = client.query(
             query=query,
             search=get_search_config(
@@ -112,6 +113,8 @@ async def ask_vectara(
             ),
             save_history=True,
         )
+        if ctx:
+            await ctx.report_progress(1, 1)
         return res.summary
     except Exception as e:
         return f"Error with Vectara RAG query: {str(e)}"
@@ -121,7 +124,9 @@ async def ask_vectara(
 @mcp.tool()
 async def search_vectara(
     query: str,
+    ctx: Context,
     corpus_keys: list[str] = [],
+    api_key: str = "",
     n_sentences_before: int = 2,
     n_sentences_after: int = 2,
     lexical_interpolation: float = 0.005
@@ -132,6 +137,7 @@ async def search_vectara(
     Args:
         query: str, The user query to run - required.
         corpus_keys: list[str], List of Vectara corpus keys to use for the search - required. Please ask the user to provide one or more corpus keys. 
+        api_key: str, The Vectara API key - required.
         n_sentences_before: int, Number of sentences before the answer to include in the context - optional, default is 2.
         n_sentences_after: int, Number of sentences after the answer to include in the context - optional, default is 2.
         lexical_interpolation: float, The amount of lexical interpolation to use - optional, default is 0.005.
@@ -143,12 +149,15 @@ async def search_vectara(
         return "Query is required."
     if not corpus_keys:
         return "Corpus keys are required. Please ask the user to provide one or more corpus keys."
+    if not api_key:
+        return "API key is required. Please provide your Vectara API key."
 
-    vectara_config = get_vectara_config()
-    vectara_api_key = vectara_config.get("api_key")
-
+    if ctx:
+        ctx.info(f"Running Vectara sematic search query: {query}")
     try:
-        client = Vectara(api_key=vectara_api_key)
+        client = Vectara(api_key=api_key)
+        if ctx:
+            await ctx.report_progress(0, 1)
         res = client.query(
             query=query,
             search=get_search_config(
@@ -159,6 +168,8 @@ async def search_vectara(
             ),
             save_history=True,
         )
+        if ctx:
+            await ctx.report_progress(1, 1)
         return res.summary
     except Exception as e:
         return f"Error with Vectara semantic search query: {str(e)}"
@@ -166,17 +177,11 @@ async def search_vectara(
 
 def cli():
     """Command-line interface for starting the Vectara MCP Server."""
-    vectara_config = get_vectara_config()
-    vectara_api_key = vectara_config.get("api_key")
     print("Starting Vectara MCP Server")
-    logger.info(
-        f"API Key configured: {'Yes' if vectara_api_key else 'No'}"
-    )
 
     # Run the server with stdio transport
     mcp.run(transport="stdio")
-    
+#    uvicorn.run(mcp.sse_app(), host="0.0.0.0", port=8000)   
 
 if __name__ == "__main__":
     cli()
-#    uvicorn.run(mcp.sse_app(), host="0.0.0.0", port=8000)
