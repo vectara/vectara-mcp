@@ -153,7 +153,7 @@ async def search_vectara(
         return "API key is required. Please provide your Vectara API key."
 
     if ctx:
-        ctx.info(f"Running Vectara sematic search query: {query}")
+        ctx.info(f"Running Vectara semantic search query: {query}")
     try:
         client = Vectara(api_key=api_key)
         if ctx:
