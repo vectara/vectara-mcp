@@ -13,36 +13,39 @@ Vectara-MCP provides any agentic application with access to fast, reliable RAG w
 
 ## Available Tools 🔧
 
-* ask_vectara:
+- **ask_vectara:**
     Run a RAG query using Vectara, returning search results with a generated response.
 
     Args:
-        query: str, The user query to run - required.
-        corpus_keys: list[str], List of Vectara corpus keys to use for the search - required. Please ask the user to provide one or more corpus keys. 
-        api_key: str, The Vectara API key - required.
-        n_sentences_before: int, Number of sentences before the answer to include in the context - optional, default is 2.
-        n_sentences_after: int, Number of sentences after the answer to include in the context - optional, default is 2.
-        lexical_interpolation: float, The amount of lexical interpolation to use - optional, default is 0.005.
-        max_used_search_results: int, The maximum number of search results to use - optional, default is 10.
-        generation_preset_name: str, The name of the generation preset to use - optional, default is "vectara-summary-table-md-query-ext-jan-2025-gpt-4o".
-        response_language: str, The language of the response - optional, default is "eng".
+
+      - query: str, The user query to run - required.
+      - corpus_keys: list[str], List of Vectara corpus keys to use for the search - required. Please ask the user to provide one or more corpus keys. 
+      - api_key: str, The Vectara API key - required.
+      - n_sentences_before: int, Number of sentences before the answer to include in the context - optional, default is 2.
+      - n_sentences_after: int, Number of sentences after the answer to include in the context - optional, default is 2.
+      - lexical_interpolation: float, The amount of lexical interpolation to use - optional, default is 0.005.
+      - max_used_search_results: int, The maximum number of search results to use - optional, default is 10.
+      - generation_preset_name: str, The name of the generation preset to use - optional, default is "vectara-summary-table-md-query-ext-jan-2025-gpt-4o".
+      - response_language: str, The language of the response - optional, default is "eng".
 
     Returns:
-        The response from Vectara, including the generated answer and the search results.
 
-* search_vectara:
+      - The response from Vectara, including the generated answer and the search results.
+
+- **search_vectara:**
     Run a semantic search query using Vectara, without generation.
 
     Args:
-        query: str, The user query to run - required.
-        corpus_keys: list[str], List of Vectara corpus keys to use for the search - required. Please ask the user to provide one or more corpus keys. 
-        api_key: str, The Vectara API key - required.
-        n_sentences_before: int, Number of sentences before the answer to include in the context - optional, default is 2.
-        n_sentences_after: int, Number of sentences after the answer to include in the context - optional, default is 2.
-        lexical_interpolation: float, The amount of lexical interpolation to use - optional, default is 0.005.
+
+      - query: str, The user query to run - required.
+      - corpus_keys: list[str], List of Vectara corpus keys to use for the search - required. Please ask the user to provide one or more corpus keys. 
+      - api_key: str, The Vectara API key - required.
+      - n_sentences_before: int, Number of sentences before the answer to include in the context - optional, default is 2.
+      - n_sentences_after: int, Number of sentences after the answer to include in the context - optional, default is 2.
+      - lexical_interpolation: float, The amount of lexical interpolation to use - optional, default is 0.005.
     
     Returns:
-        The response from Vectara, including the matching search results.
+      - The response from Vectara, including the matching search results.
 
 
 ## Configuration with Claude Desktop ⚙️
