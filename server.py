@@ -1,4 +1,3 @@
-import os
 import logging
 
 from mcp.server.fastmcp import FastMCP, Context
@@ -178,10 +177,7 @@ async def search_vectara(
 def cli():
     """Command-line interface for starting the Vectara MCP Server."""
     print("Starting Vectara MCP Server")
-
-    # Run the server with stdio transport
-    mcp.run(transport="stdio")
-#    uvicorn.run(mcp.sse_app(), host="0.0.0.0", port=8000)   
+    mcp.run()
 
 if __name__ == "__main__":
     cli()
