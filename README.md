@@ -1,6 +1,6 @@
 # Vectara MCP Server 🚀
 
-![GitHub Repo stars](https://img.shields.io/github/stars/Vectara-ai/Vectara-mcp?style=social)
+![GitHub Repo stars](https://img.shields.io/github/stars/Vectara/Vectara-mcp?style=social)
 
 > 🔌 **Compatible with [Claude Desktop](https://claude.ai/desktop), and any other MCP Client!**
 >
