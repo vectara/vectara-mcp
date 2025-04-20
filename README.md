@@ -1,4 +1,4 @@
-# Vectara MCP Server 🚀
+# Vectara MCP Server
 
 ![GitHub Repo stars](https://img.shields.io/github/stars/Vectara/Vectara-mcp?style=social)
 
@@ -11,7 +11,7 @@ The Model Context Protocol (MCP) is an open standard that enables AI systems to 
 
 Vectara-MCP provides any agentic application with access to fast, reliable RAG with reduced hallucination, powered by Vectara's Trusted RAG platform, through the MCP protocol.
 
-## Available Tools 🔧
+## Available Tools
 
 - **ask_vectara:**
   Run a RAG query using Vectara, returning search results with a generated response.
@@ -48,7 +48,7 @@ Vectara-MCP provides any agentic application with access to fast, reliable RAG w
   - The response from Vectara, including the matching search results.
 
 
-## Configuration with Claude Desktop ⚙️
+## Configuration with Claude Desktop
 
 Add to your claude_desktop_config.json:
 
@@ -56,16 +56,16 @@ Add to your claude_desktop_config.json:
 {
   "mcpServers": {
     "Vectara": {
-      "command": "npx",
-      "args": ["/path/to/vectara-mcp/build/index.js"],
+      "command": "uvx",
+      "args": [
+        "vectara-mcp"
+      ],
     }
   }
 }
 ```
 
-Replace `/path/to/vectara-mcp` with the actual path where you cloned the repository on your system.
-
-## Usage in Claude Desktop App 🎯
+## Usage in Claude Desktop App
 
 Once the installation is complete, and the Claude desktop app is configured, you must completely close and re-open the Claude desktop app to see the Vectara-mcp server. You should see a hammer icon in the bottom left of the app, indicating available MCP tools, you can click on the hammer icon to see more detial on the Vectara-search and Vectara-extract tools.
 
