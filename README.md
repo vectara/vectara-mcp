@@ -56,10 +56,13 @@ Add to your claude_desktop_config.json:
 {
   "mcpServers": {
     "Vectara": {
-      "command": "uvx",
+      "command": "/Users/ofer/.local/bin/uv",
       "args": [
-        "vectara-mcp"
-      ],
+        "--directory",
+        "/Users/ofer/dev/vectara-mcp",
+        "run",
+        "server.py"
+      ]
     }
   }
 }
