@@ -174,10 +174,10 @@ async def search_vectara(
         return f"Error with Vectara semantic search query: {str(e)}"
 
 
-def cli():
+def main():
     """Command-line interface for starting the Vectara MCP Server."""
     print("Starting Vectara MCP Server")
     mcp.run()
 
 if __name__ == "__main__":
-    cli()
+    main()

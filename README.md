@@ -1,6 +1,8 @@
 # Vectara MCP Server
 
 ![GitHub Repo stars](https://img.shields.io/github/stars/Vectara/Vectara-mcp?style=social)
+![PyPI version](https://img.shields.io/pypi/v/vectara-mcp.svg)
+![License](https://img.shields.io/pypi/l/vectara-mcp.svg)
 
 > 🔌 **Compatible with [Claude Desktop](https://claude.ai/desktop), and any other MCP Client!**
 >
@@ -10,6 +12,14 @@
 The Model Context Protocol (MCP) is an open standard that enables AI systems to interact seamlessly with various data sources and tools, facilitating secure, two-way connections.
 
 Vectara-MCP provides any agentic application with access to fast, reliable RAG with reduced hallucination, powered by Vectara's Trusted RAG platform, through the MCP protocol.
+
+## Installation
+
+You can install the package directly from PyPI:
+
+```bash
+pip install vectara-mcp
+```
 
 ## Available Tools
 
@@ -31,6 +41,7 @@ Vectara-MCP provides any agentic application with access to fast, reliable RAG w
   Returns:
 
     - The response from Vectara, including the generated answer and the search results.
+<br><br>
 
 - **search_vectara:**
     Run a semantic search query using Vectara, without generation.
