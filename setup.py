@@ -27,7 +27,7 @@ setup(
     python_requires=">=3.11",  # Specify the minimum Python version
     entry_points={
         "console_scripts": [
-            "vectara-mcp=vectara_mcp.server:cli",
+            "vectara-mcp=vectara_mcp.server:main",
         ],
     },
     keywords="vectara, mcp, rag, ai, search, semantic-search",
