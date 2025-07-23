@@ -9,6 +9,10 @@
 > Vectara MCP is also compatible with any MCP client
 >
 
+<a href="https://glama.ai/mcp/servers/@vectara/vectara-mcp">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@vectara/vectara-mcp/badge" alt="Vectara server MCP server" />
+</a>
+
 The Model Context Protocol (MCP) is an open standard that enables AI systems to interact seamlessly with various data sources and tools, facilitating secure, two-way connections.
 
 Vectara-MCP provides any agentic application with access to fast, reliable RAG with reduced hallucination, powered by Vectara's Trusted RAG platform, through the MCP protocol.
