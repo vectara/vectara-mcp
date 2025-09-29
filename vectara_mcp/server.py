@@ -175,7 +175,6 @@ async def _make_api_request(
     api_key = _validate_api_key(api_key_override)
     headers = _build_headers(api_key)
 
-
     async with aiohttp.ClientSession() as session:
         if ctx:
             await ctx.report_progress(0, 1)
@@ -183,7 +182,6 @@ async def _make_api_request(
         async with session.post(url, headers=headers, json=payload) as response:
             if ctx:
                 await ctx.report_progress(1, 1)
-
 
             return await _handle_http_response(response, error_context)
 
@@ -570,7 +568,6 @@ async def eval_factual_consistency(
             "generated_text": generated_text,
             "source_texts": documents,
         }
-
 
         return await _make_api_request(
             f"{VECTARA_BASE_URL}/evaluate_factual_consistency",
