@@ -23,14 +23,30 @@ pip install vectara-mcp
 
 ## Available Tools
 
+### API Key Management
+- **setup_vectara_api_key:**
+  Configure and validate your Vectara API key for the session (one-time setup).
+
+  Args:
+  - api_key: str, Your Vectara API key - required.
+
+  Returns:
+  - Success confirmation with masked API key or validation error.
+
+
+- **clear_vectara_api_key:**
+  Clear the stored API key from server memory.
+
+  Returns:
+  - Confirmation message.
+
+### Query Tools
 - **ask_vectara:**
   Run a RAG query using Vectara, returning search results with a generated response.
 
   Args:
-
   - query: str, The user query to run - required.
-  - corpus_keys: list[str], List of Vectara corpus keys to use for the search - required. Please ask the user to provide one or more corpus keys. 
-  - api_key: str, The Vectara API key - required.
+  - corpus_keys: list[str], List of Vectara corpus keys to use for the search - required.
   - n_sentences_before: int, Number of sentences before the answer to include in the context - optional, default is 2.
   - n_sentences_after: int, Number of sentences after the answer to include in the context - optional, default is 2.
   - lexical_interpolation: float, The amount of lexical interpolation to use - optional, default is 0.005.
@@ -39,24 +55,45 @@ pip install vectara-mcp
   - response_language: str, The language of the response - optional, default is "eng".
 
   Returns:
-
-    - The response from Vectara, including the generated answer and the search results.
-<br><br>
+  - The response from Vectara, including the generated answer and the search results.
 
 - **search_vectara:**
-    Run a semantic search query using Vectara, without generation.
+  Run a semantic search query using Vectara, without generation.
 
   Args:
-
   - query: str, The user query to run - required.
-  - corpus_keys: list[str], List of Vectara corpus keys to use for the search - required. Please ask the user to provide one or more corpus keys. 
-  - api_key: str, The Vectara API key - required.
+  - corpus_keys: list[str], List of Vectara corpus keys to use for the search - required.
   - n_sentences_before: int, Number of sentences before the answer to include in the context - optional, default is 2.
   - n_sentences_after: int, Number of sentences after the answer to include in the context - optional, default is 2.
   - lexical_interpolation: float, The amount of lexical interpolation to use - optional, default is 0.005.
-    
+
   Returns:
   - The response from Vectara, including the matching search results.
+
+### Analysis Tools
+- **correct_hallucinations:**
+  Identify and correct hallucinations in generated text using Vectara's VHC (Vectara Hallucination Correction) API.
+
+  Args:
+  - generated_text: str, The generated text to analyze for hallucinations - required.
+  - documents: list[str], List of source documents to compare against - required.
+  - query: str, The original user query that led to the generated text - optional.
+
+  Returns:
+  - JSON-formatted string containing corrected text and detailed correction information.
+
+- **eval_factual_consistency:**
+  Evaluate the factual consistency of generated text against source documents using Vectara's dedicated factual consistency evaluation API.
+
+  Args:
+  - generated_text: str, The generated text to evaluate for factual consistency - required.
+  - documents: list[str], List of source documents to compare against - required.
+  - query: str, The original user query that led to the generated text - optional.
+
+  Returns:
+  - JSON-formatted string containing factual consistency evaluation results and scoring.
+
+**Note:** API key must be configured first using `setup_vectara_api_key` tool or `VECTARA_API_KEY` environment variable.
 
 
 ## Configuration with Claude Desktop
@@ -82,20 +119,59 @@ Add to your claude_desktop_config.json:
 
 Once the installation is complete, and the Claude desktop app is configured, you must completely close and re-open the Claude desktop app to see the Vectara-mcp server. You should see a hammer icon in the bottom left of the app, indicating available MCP tools, you can click on the hammer icon to see more detial on the Vectara-search and Vectara-extract tools.
 
-Now claude will have complete access to the Vectara-mcp server, including the ask-vectara and search-vectara tools. 
-When you issue the tools for the first time, Claude will ask you for your Vectara api key and corpus key (or keys if you want to use multiple corpora). After you set those, you will be ready to go. Here are some examples you can try (with the Vectara corpus that includes information from our [website](https://vectara.com):
+Now claude will have complete access to the Vectara-mcp server, including all six Vectara tools.
 
-### Vectara RAG Examples
+## Secure Setup Workflow
 
-1. **Querying Vectara corpus**:
+**First-time setup (one-time per session):**
+1. Configure your API key securely:
 ```
-ask-vectara Who is Amr Awadallah?
+setup-vectara-api-key
+API key: [your-vectara-api-key]
 ```
 
-2. **Searching Vectara corpus**:
+
+**After setup, use any tools without exposing your API key:**
+
+### Vectara Tool Examples
+
+1. **RAG Query with Generation**:
 ```
-search-vectara events in NYC?
+ask-vectara
+Query: Who is Amr Awadallah?
+Corpus keys: ["your-corpus-key"]
 ```
+
+2. **Semantic Search Only**:
+```
+search-vectara
+Query: events in NYC?
+Corpus keys: ["your-corpus-key"]
+```
+
+3. **Hallucination Correction**:
+```
+correct-hallucinations
+Generated text: "The capital of France is Berlin and it's located in Germany."
+Documents: ["Paris is the capital of France.", "Berlin is the capital of Germany."]
+```
+
+4. **Factual Consistency Evaluation**:
+```
+eval-factual-consistency
+Generated text: "The Eiffel Tower was built in 1887 in London."
+Documents: ["The Eiffel Tower was built in 1889 in Paris, France."]
+```
+
+## Alternative: Environment Variable Setup
+
+You can also set the `VECTARA_API_KEY` environment variable instead of using the setup tool:
+
+```bash
+export VECTARA_API_KEY=your-vectara-api-key
+```
+
+The server will automatically detect and use environment variables, providing the same secure experience.
 
 ## Acknowledgments ✨
 
