@@ -1,4 +1,5 @@
 import pytest
+import pytest_asyncio
 import os
 import json
 from dotenv import load_dotenv
@@ -30,6 +31,18 @@ pytestmark = pytest.mark.skipif(
 
 class TestVectaraIntegration:
     """Integration tests for Vectara MCP tools using real API endpoints"""
+
+    @pytest_asyncio.fixture(autouse=True)
+    async def cleanup_connection_manager(self):
+        """Cleanup connection manager before and after each test"""
+        from vectara_mcp.connection_manager import ConnectionManager, connection_manager
+        # Clean up before test
+        await connection_manager.close()
+        ConnectionManager.reset_instance()
+        yield
+        # Clean up after test
+        await connection_manager.close()
+        ConnectionManager.reset_instance()
 
     @pytest.fixture
     def mock_context(self):

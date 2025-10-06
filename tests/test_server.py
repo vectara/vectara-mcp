@@ -360,13 +360,10 @@ class TestVectaraTools:
         assert result == {"error": "API key not configured. Please use 'setup_vectara_api_key' tool first or set VECTARA_API_KEY environment variable."}
 
     @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.post')
-    async def test_eval_factual_consistency_success(self, mock_post, mock_context, mock_api_key):
+    @patch('vectara_mcp.server._make_api_request')
+    async def test_eval_factual_consistency_success(self, mock_api_request, mock_context, mock_api_key):
         """Test successful eval_factual_consistency call"""
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.json.return_value = {"consistency_score": 0.85, "inconsistencies": []}
-        mock_post.return_value.__aenter__.return_value = mock_response
+        mock_api_request.return_value = {"consistency_score": 0.85, "inconsistencies": []}
 
         result = await eval_factual_consistency(
             generated_text="test text for consistency check",
@@ -379,12 +376,10 @@ class TestVectaraTools:
         mock_context.info.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.post')
-    async def test_eval_factual_consistency_422_error(self, mock_post, mock_context, mock_api_key):
+    @patch('vectara_mcp.server._make_api_request')
+    async def test_eval_factual_consistency_422_error(self, mock_api_request, mock_context, mock_api_key):
         """Test eval_factual_consistency with 422 language not supported error"""
-        mock_response = AsyncMock()
-        mock_response.status = 422
-        mock_post.return_value.__aenter__.return_value = mock_response
+        mock_api_request.side_effect = Exception("Language not supported by service.")
 
         result = await eval_factual_consistency(
             generated_text="test text",
@@ -395,10 +390,10 @@ class TestVectaraTools:
         assert result == {"error": "Error with factual consistency evaluation: Language not supported by service."}
 
     @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.post')
-    async def test_eval_factual_consistency_exception(self, mock_post, mock_context, mock_api_key):
+    @patch('vectara_mcp.server._make_api_request')
+    async def test_eval_factual_consistency_exception(self, mock_api_request, mock_context, mock_api_key):
         """Test eval_factual_consistency with exception"""
-        mock_post.side_effect = Exception("Network error")
+        mock_api_request.side_effect = Exception("Network error")
 
         result = await eval_factual_consistency(
             generated_text="test text",

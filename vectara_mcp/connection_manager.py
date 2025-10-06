@@ -147,6 +147,7 @@ class ConnectionManager:
 
         self._session: Optional[aiohttp.ClientSession] = None
         self._circuit_breaker = CircuitBreaker()
+        self._session_loop: Optional[asyncio.AbstractEventLoop] = None
         self._initialized = True
 
         # Connection pool configuration
@@ -168,12 +169,24 @@ class ConnectionManager:
 
     async def initialize(self):
         """Initialize the HTTP session."""
+        current_loop = asyncio.get_running_loop()
+
+        # Check if session exists and is bound to a different/closed event loop
         if self._session is not None:
-            return
+            if self._session_loop != current_loop or self._session.closed:
+                logger.info("Session bound to different/closed event loop, reinitializing")
+                await self._close_session()
+            else:
+                return
 
         async with self._lock:
-            if self._session is not None:
+            # Double-check after acquiring lock
+            if self._session is not None and self._session_loop == current_loop and not self._session.closed:
                 return
+
+            # Close existing session if it exists
+            if self._session is not None:
+                await self._close_session()
 
             # Create SSL context with verification
             ssl_context = ssl.create_default_context()
@@ -196,15 +209,33 @@ class ConnectionManager:
                     'Accept-Encoding': 'gzip, deflate'
                 }
             )
+            self._session_loop = current_loop
 
             logger.info("Connection manager initialized with persistent session")
 
+    async def _close_session(self):
+        """Helper method to safely close the current session."""
+        if self._session is not None:
+            try:
+                await self._session.close()
+            except RuntimeError as e:
+                if "Event loop is closed" not in str(e):
+                    raise
+                # Silently handle event loop closure during cleanup
+            finally:
+                self._session = None
+                self._session_loop = None
+
     async def close(self):
         """Close the HTTP session and cleanup resources."""
-        if self._session is not None:
-            await self._session.close()
-            self._session = None
-            logger.info("Connection manager closed")
+        await self._close_session()
+        logger.info("Connection manager closed")
+
+    @classmethod
+    def reset_instance(cls):
+        """Reset the singleton instance. Use with caution - mainly for testing."""
+        cls._instance = None
+
 
     async def request(
         self,
@@ -233,6 +264,9 @@ class ConnectionManager:
 
         if self._session is None:
             raise RuntimeError("Session not initialized")
+
+        if self._session.closed:
+            raise RuntimeError("Session has been closed")
 
         async def _make_request_with_circuit_breaker():
             """Make request through circuit breaker."""

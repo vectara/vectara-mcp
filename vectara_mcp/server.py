@@ -350,7 +350,7 @@ async def setup_vectara_api_key(
 
     except Exception as e:
         error_msg = str(e)
-        if "403" in error_msg or "Permission denied" in error_msg:
+        if "403" in error_msg or "401" in error_msg or "Permission denied" in error_msg or "API key error" in error_msg:
             return "Invalid API key. Please check your Vectara API key and try again."
         elif any(status in error_msg for status in ["400", "404", "Bad request", "Corpus not found"]):
             # These errors indicate API key is valid but request failed for other reasons
@@ -814,6 +814,7 @@ def main():
         print("⚠️  Warning: STDIO transport is less secure. Use only for local development.", file=sys.stderr)
         print("Starting Vectara MCP Server (STDIO mode)...", file=sys.stderr)
         mcp.run()
+        sys.exit(0)
     else:
         if args.no_auth:
             print("⚠️  WARNING: Authentication disabled. NEVER use in production!", file=sys.stderr)
@@ -836,6 +837,8 @@ def main():
             mcp.run(transport='http', host=args.host, port=args.port)
         else:  # sse
             mcp.run(transport='sse', host=args.host, port=args.port, path=args.path)
+
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()
