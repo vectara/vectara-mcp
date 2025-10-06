@@ -1,8 +1,8 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="vectara-mcp",  # Replace with your package name
-    version="0.1.3",     # Start with an initial version
+    name="vectara-mcp",
+    version="0.1.6",
     description="Open source MCP server for Vectara",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",

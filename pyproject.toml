@@ -1,7 +1,7 @@
 [project]
 name = "vectara-mcp"
-version = "0.1.5"
-description = "A Model Context Protocol (MCP) server that provides capabilities using Vectara's RAG"
+version = "0.1.6"
+description = "A Model Context Protocol (MCP) server that provides tools from Vectara"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

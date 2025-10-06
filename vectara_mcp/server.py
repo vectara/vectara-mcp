@@ -2,8 +2,31 @@ import logging
 import json
 import aiohttp
 import os
+import argparse
+import sys
+import atexit
+import signal
+import asyncio
+
+logger = logging.getLogger(__name__)
 
 from mcp.server.fastmcp import FastMCP, Context
+from vectara_mcp.auth import (
+    AuthMiddleware,
+    require_auth,
+    add_security_headers,
+    RateLimiter,
+    validate_origin
+)
+from vectara_mcp.connection_manager import (
+    get_connection_manager,
+    cleanup_connections
+)
+from vectara_mcp.health_checks import (
+    get_liveness,
+    get_readiness,
+    get_detailed_health
+)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -15,8 +38,23 @@ DEFAULT_LANGUAGE = "en"
 # Create the Vectara MCP server
 mcp = FastMCP("vectara")
 
+# Initialize authentication and security components
+auth_middleware = None
+rate_limiter = RateLimiter(max_requests=100, window_seconds=60)
+
 # Global API key storage (session-scoped)
 _stored_api_key: str | None = None
+# Global authentication requirement flag
+_auth_required: bool = True
+
+def initialize_auth(auth_required: bool):
+    """Initialize authentication middleware.
+
+    Args:
+        auth_required: Whether authentication is required
+    """
+    global auth_middleware
+    auth_middleware = AuthMiddleware(auth_required=auth_required)
 
 def _mask_api_key(api_key: str) -> str:
     """Mask API key for safe logging/display.
@@ -159,6 +197,8 @@ async def _make_api_request(
 ) -> dict:
     """Generic HTTP POST request with progress reporting and error handling.
 
+    Uses persistent connection pooling and circuit breaker pattern.
+
     Args:
         url: The API endpoint URL
         payload: Request payload
@@ -175,15 +215,32 @@ async def _make_api_request(
     api_key = _validate_api_key(api_key_override)
     headers = _build_headers(api_key)
 
-    async with aiohttp.ClientSession() as session:
+    # Get connection manager with persistent session
+    conn_manager = await get_connection_manager()
+
+    if ctx:
+        await ctx.report_progress(0, 1)
+
+    try:
+        # Use persistent session with circuit breaker protection
+        response = await conn_manager.request(
+            method='POST',
+            url=url,
+            headers=headers,
+            json_data=payload
+        )
+
         if ctx:
-            await ctx.report_progress(0, 1)
+            await ctx.report_progress(1, 1)
 
-        async with session.post(url, headers=headers, json=payload) as response:
-            if ctx:
-                await ctx.report_progress(1, 1)
-
+        # Handle response using existing logic
+        async with response:
             return await _handle_http_response(response, error_context)
+
+    except Exception as e:
+        # Log the error with context
+        logger.error(f"API request failed: {error_context} - {str(e)}")
+        raise
 
 def _build_query_payload(
     query: str,
@@ -329,6 +386,110 @@ async def clear_vectara_api_key(ctx: Context) -> str:
 
     _stored_api_key = None
     return "API key cleared from server memory."
+
+
+# Health Check Tools
+@mcp.tool()
+async def health_check(
+    ctx: Context
+) -> dict:
+    """
+    Get server liveness status (basic health check).
+
+    This endpoint checks if the server process is running and responding.
+    Used by load balancers to determine if traffic should be routed here.
+
+    Returns:
+        dict: Server liveness status with uptime and version info.
+    """
+    if ctx:
+        ctx.info("Performing health check")
+
+    try:
+        return await get_liveness()
+    except Exception as e:
+        return {"error": _format_error("health check", e)}
+
+
+@mcp.tool()
+async def readiness_check(
+    ctx: Context
+) -> dict:
+    """
+    Get server readiness status (dependency health check).
+
+    This endpoint checks if the server can handle traffic by validating
+    critical dependencies like connection manager and Vectara API connectivity.
+    Used by orchestration platforms to determine deployment readiness.
+
+    Returns:
+        dict: Server readiness status with dependency check results.
+    """
+    if ctx:
+        ctx.info("Performing readiness check")
+
+    try:
+        return await get_readiness()
+    except Exception as e:
+        return {"error": _format_error("readiness check", e)}
+
+
+@mcp.tool()
+async def detailed_health_check(
+    ctx: Context
+) -> dict:
+    """
+    Get comprehensive server health status with detailed metrics.
+
+    This endpoint provides detailed information about all system components,
+    performance metrics, connection pool status, and configuration.
+    Used for monitoring, debugging, and operational visibility.
+
+    Returns:
+        dict: Comprehensive health status with detailed metrics and component states.
+    """
+    if ctx:
+        ctx.info("Performing detailed health check")
+
+    try:
+        return await get_detailed_health()
+    except Exception as e:
+        return {"error": _format_error("detailed health check", e)}
+
+
+@mcp.tool()
+async def get_server_stats(
+    ctx: Context
+) -> dict:
+    """
+    Get server statistics and metrics for monitoring.
+
+    Provides runtime statistics including connection pool status,
+    circuit breaker state, retry metrics, and performance data.
+
+    Returns:
+        dict: Server statistics and operational metrics.
+    """
+    if ctx:
+        ctx.info("Getting server statistics")
+
+    try:
+        from vectara_mcp.connection_manager import connection_manager
+        from vectara_mcp.retry_logic import retry_metrics
+
+        stats = {
+            "connection_manager": connection_manager.get_stats(),
+            "retry_metrics": retry_metrics.get_stats(),
+            "server_info": {
+                "version": "2.0.0",
+                "transport": "http",  # Could be made dynamic
+                "auth_enabled": bool(_auth_required)
+            }
+        }
+
+        return stats
+    except Exception as e:
+        return {"error": _format_error("server stats", e)}
 
 
 # Query tool
@@ -581,10 +742,101 @@ async def eval_factual_consistency(
         return {"error": _format_error("factual consistency evaluation", e)}
 
 
+def _setup_signal_handlers():
+    """Setup signal handlers for graceful shutdown."""
+    def signal_handler(signum, frame):
+        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+        # Schedule cleanup in the event loop
+        if hasattr(asyncio, 'get_running_loop'):
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(cleanup_connections())
+            except RuntimeError:
+                # No running loop, cleanup will happen at exit
+                pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+
+def _setup_cleanup():
+    """Setup cleanup for process exit."""
+    atexit.register(lambda: asyncio.run(cleanup_connections()))
+
+
 def main():
     """Command-line interface for starting the Vectara MCP Server."""
-    print("Starting Vectara MCP Server")
-    mcp.run()
+    parser = argparse.ArgumentParser(description="Vectara MCP Server")
+    parser.add_argument(
+        '--transport',
+        default='http',
+        choices=['http', 'sse', 'stdio'],
+        help='Transport protocol (default: http for security)'
+    )
+    parser.add_argument(
+        '--host',
+        default='127.0.0.1',
+        help='Host address for HTTP/SSE transport (default: 127.0.0.1)'
+    )
+    parser.add_argument(
+        '--port',
+        type=int,
+        default=8000,
+        help='Port for HTTP/SSE transport (default: 8000)'
+    )
+    parser.add_argument(
+        '--stdio',
+        action='store_true',
+        help='Use STDIO transport (less secure, for local development only)'
+    )
+    parser.add_argument(
+        '--no-auth',
+        action='store_true',
+        help='Disable authentication (DANGEROUS: development only)'
+    )
+    parser.add_argument(
+        '--path',
+        default='/sse',
+        help='Path for SSE endpoint (default: /sse)'
+    )
+
+    args = parser.parse_args()
+
+    # Override transport if --stdio flag is used
+    if args.stdio:
+        args.transport = 'stdio'
+
+    # Configure authentication based on transport and flags
+    auth_enabled = args.transport != 'stdio' and not args.no_auth
+
+    # Display startup information
+    if args.transport == 'stdio':
+        print("⚠️  Warning: STDIO transport is less secure. Use only for local development.", file=sys.stderr)
+        print("Starting Vectara MCP Server (STDIO mode)...", file=sys.stderr)
+        mcp.run()
+    else:
+        if args.no_auth:
+            print("⚠️  WARNING: Authentication disabled. NEVER use in production!", file=sys.stderr)
+
+        transport_name = "HTTP" if args.transport == 'http' else "SSE"
+        auth_status = "enabled" if auth_enabled else "DISABLED"
+
+        print(f"Starting Vectara MCP Server ({transport_name} mode)", file=sys.stderr)
+        print(f"Server: http://{args.host}:{args.port}{args.path if args.transport == 'sse' else ''}", file=sys.stderr)
+        print(f"Authentication: {auth_status}", file=sys.stderr)
+
+        # Initialize authentication middleware
+        initialize_auth(auth_enabled)
+
+        # Setup signal handlers and cleanup
+        _setup_signal_handlers()
+        _setup_cleanup()
+
+        if args.transport == 'http':
+            mcp.run(transport='http', host=args.host, port=args.port)
+        else:  # sse
+            mcp.run(transport='sse', host=args.host, port=args.port, path=args.path)
 
 if __name__ == "__main__":
     main()
