@@ -40,13 +40,10 @@ class TestApiKeyManagement:
         assert result == "API key is required."
 
     @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.post')
-    async def test_setup_vectara_api_key_invalid_key(self, mock_post, mock_context):
-        """Test setup_vectara_api_key with invalid API key (403 response)"""
-        mock_response = AsyncMock()
-        mock_response.status = 403
-
-        mock_post.return_value.__aenter__.return_value = mock_response
+    @patch('vectara_mcp.server._make_api_request')
+    async def test_setup_vectara_api_key_invalid_key(self, mock_api_request, mock_context):
+        """Test setup_vectara_api_key with invalid API key (401 response)"""
+        mock_api_request.side_effect = Exception("API error 401: API key error")
 
         result = await setup_vectara_api_key(
             api_key="invalid-key",
@@ -56,13 +53,10 @@ class TestApiKeyManagement:
         assert result == "Invalid API key. Please check your Vectara API key and try again."
 
     @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.post')
-    async def test_setup_vectara_api_key_success(self, mock_post, mock_context):
+    @patch('vectara_mcp.server._make_api_request')
+    async def test_setup_vectara_api_key_success(self, mock_api_request, mock_context):
         """Test successful setup_vectara_api_key call"""
-        mock_response = AsyncMock()
-        mock_response.status = 404  # Corpus not found, but API key is valid
-
-        mock_post.return_value.__aenter__.return_value = mock_response
+        mock_api_request.side_effect = Exception("Corpus not found")  # Valid API key but corpus doesn't exist
 
         result = await setup_vectara_api_key(
             api_key="valid-api-key-12345",
@@ -73,10 +67,10 @@ class TestApiKeyManagement:
         mock_context.info.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.post')
-    async def test_setup_vectara_api_key_network_error(self, mock_post, mock_context):
+    @patch('vectara_mcp.server._make_api_request')
+    async def test_setup_vectara_api_key_network_error(self, mock_api_request, mock_context):
         """Test setup_vectara_api_key with network error"""
-        mock_post.side_effect = Exception("Network error")
+        mock_api_request.side_effect = Exception("Network error")
 
         result = await setup_vectara_api_key(
             api_key="test-key",
