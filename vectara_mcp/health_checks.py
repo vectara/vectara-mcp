@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from .connection_manager import get_connection_manager
-from .retry_logic import retry_metrics
+from . import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class HealthChecker:
             "status": HealthStatus.HEALTHY.value,
             "timestamp": time.time(),
             "uptime_seconds": round(time.time() - self.server_start_time, 2),
-            "version": "2.0.0",
+            "version": __version__,
             "service": "vectara-mcp-server"
         }
 
@@ -140,7 +140,7 @@ class HealthChecker:
         # Basic server info
         server_info = {
             "uptime_seconds": round(time.time() - self.server_start_time, 2),
-            "version": "2.0.0",
+            "version": __version__,
             "service": "vectara-mcp-server",
             "pid": os.getpid() if hasattr(os, 'getpid') else None
         }
@@ -175,11 +175,6 @@ class HealthChecker:
             ))
             overall_status = HealthStatus.UNHEALTHY
 
-        # Retry metrics
-        try:
-            metrics["retry"] = retry_metrics.get_stats()
-        except Exception as e:
-            logger.warning(f"Failed to get retry metrics: {e}")
 
         # Memory usage (if available)
         try:

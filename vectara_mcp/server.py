@@ -27,6 +27,7 @@ from vectara_mcp.health_checks import (
     get_readiness,
     get_detailed_health
 )
+from vectara_mcp import __version__
 
 logging.basicConfig(level=logging.INFO)
 
@@ -34,13 +35,18 @@ logging.basicConfig(level=logging.INFO)
 VECTARA_BASE_URL = "https://api.vectara.io/v2"
 VHC_MODEL_NAME = "vhc-large-1.0"
 DEFAULT_LANGUAGE = "en"
+API_KEY_ERROR_MESSAGE = "API key not configured. Please use 'setup_vectara_api_key' tool first or set VECTARA_API_KEY environment variable."
+
+# Rate limiting configuration
+DEFAULT_MAX_REQUESTS = 100
+DEFAULT_WINDOW_SECONDS = 60
 
 # Create the Vectara MCP server
 mcp = FastMCP("vectara")
 
 # Initialize authentication and security components
 auth_middleware = None
-rate_limiter = RateLimiter(max_requests=100, window_seconds=60)
+rate_limiter = RateLimiter(max_requests=DEFAULT_MAX_REQUESTS, window_seconds=DEFAULT_WINDOW_SECONDS)
 
 # Global API key storage (session-scoped)
 _stored_api_key: str | None = None
@@ -103,27 +109,10 @@ def _validate_common_parameters(query: str = "", corpus_keys: list[str] = None) 
     # Check API key availability
     api_key = _get_api_key()
     if not api_key:
-        return "API key not configured. Please use 'setup_vectara_api_key' tool first or set VECTARA_API_KEY environment variable."
+        return API_KEY_ERROR_MESSAGE
 
     return None
 
-def _validate_vhc_parameters(generated_text: str = "", documents: list[str] = None) -> str | None:
-    """Validate parameters for VHC (hallucination correction) tools.
-
-    Returns:
-        str: Error message if validation fails, None if valid
-    """
-    if not generated_text:
-        return "Generated text is required."
-    if not documents:
-        return "Documents are required."
-
-    # Check API key availability
-    api_key = _get_api_key()
-    if not api_key:
-        return "API key not configured. Please use 'setup_vectara_api_key' tool first or set VECTARA_API_KEY environment variable."
-
-    return None
 
 def _validate_api_key(api_key_override: str = None) -> str:
     """Validate and return API key, raise exception if not found.
@@ -475,13 +464,11 @@ async def get_server_stats(
 
     try:
         from vectara_mcp.connection_manager import connection_manager
-        from vectara_mcp.retry_logic import retry_metrics
 
         stats = {
             "connection_manager": connection_manager.get_stats(),
-            "retry_metrics": retry_metrics.get_stats(),
             "server_info": {
-                "version": "2.0.0",
+                "version": __version__,
                 "transport": "http",  # Could be made dynamic
                 "auth_enabled": bool(_auth_required)
             }
@@ -667,9 +654,15 @@ async def correct_hallucinations(
         On error, returns dict with "error" key containing error message.
     """
     # Validate parameters
-    validation_error = _validate_vhc_parameters(generated_text, documents)
-    if validation_error:
-        return {"error": validation_error}
+    if not generated_text:
+        return {"error": "Generated text is required."}
+    if not documents:
+        return {"error": "Documents are required."}
+
+    # Validate API key early
+    api_key = _get_api_key()
+    if not api_key:
+        return {"error": API_KEY_ERROR_MESSAGE}
 
     if ctx:
         ctx.info(f"Analyzing text for hallucinations: {generated_text[:100]}...")
@@ -716,9 +709,15 @@ async def eval_factual_consistency(
         On error, returns dict with "error" key containing error message.
     """
     # Validate parameters
-    validation_error = _validate_vhc_parameters(generated_text, documents)
-    if validation_error:
-        return {"error": validation_error}
+    if not generated_text:
+        return {"error": "Generated text is required."}
+    if not documents:
+        return {"error": "Documents are required."}
+
+    # Validate API key early
+    api_key = _get_api_key()
+    if not api_key:
+        return {"error": API_KEY_ERROR_MESSAGE}
 
     if ctx:
         ctx.info(f"Evaluating factual consistency for text: {generated_text[:100]}...")

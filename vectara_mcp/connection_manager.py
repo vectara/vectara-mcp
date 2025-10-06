@@ -12,9 +12,19 @@ from enum import Enum
 from typing import Optional, Dict, Any
 import aiohttp
 import ssl
-from .retry_logic import retry_async, STANDARD_RETRY, retry_metrics
+from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 logger = logging.getLogger(__name__)
+
+# Connection timeout constants
+DEFAULT_TOTAL_TIMEOUT = 30  # Total request timeout
+DEFAULT_CONNECT_TIMEOUT = 10  # Connection timeout
+DEFAULT_SOCK_READ_TIMEOUT = 20  # Socket read timeout
+DEFAULT_HEALTH_CHECK_TIMEOUT = 5  # Health check timeout
+
+# Circuit breaker constants
+DEFAULT_CIRCUIT_FAILURE_THRESHOLD = 5
+DEFAULT_CIRCUIT_RECOVERY_TIMEOUT = 60
 
 
 class CircuitState(Enum):
@@ -29,8 +39,8 @@ class CircuitBreaker:
 
     def __init__(
         self,
-        failure_threshold: int = 5,
-        recovery_timeout: int = 60,
+        failure_threshold: int = DEFAULT_CIRCUIT_FAILURE_THRESHOLD,
+        recovery_timeout: int = DEFAULT_CIRCUIT_RECOVERY_TIMEOUT,
         expected_exception: tuple = (aiohttp.ClientError, asyncio.TimeoutError)
     ):
         """Initialize circuit breaker.
@@ -151,9 +161,9 @@ class ConnectionManager:
 
         # Request timeout configuration
         self._timeout_config = aiohttp.ClientTimeout(
-            total=30,  # Total request timeout
-            connect=10,  # Connection timeout
-            sock_read=20,  # Socket read timeout
+            total=DEFAULT_TOTAL_TIMEOUT,
+            connect=DEFAULT_CONNECT_TIMEOUT,
+            sock_read=DEFAULT_SOCK_READ_TIMEOUT,
         )
 
     async def initialize(self):
@@ -248,17 +258,14 @@ class ConnectionManager:
 
             return await self._circuit_breaker.call(_make_request)
 
-        # Apply retry logic with circuit breaker
-        try:
-            result = await retry_async(
-                _make_request_with_circuit_breaker,
-                config=STANDARD_RETRY
-            )
-            retry_metrics.record_attempt(1, True)
-            return result
-        except Exception as e:
-            retry_metrics.record_attempt(1, False, type(e).__name__)
-            raise
+        # Apply retry logic with circuit breaker using tenacity
+        async for attempt in AsyncRetrying(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=1, max=10),
+            retry=retry_if_exception_type((aiohttp.ClientError, asyncio.TimeoutError))
+        ):
+            with attempt:
+                return await _make_request_with_circuit_breaker()
 
     def get_stats(self) -> Dict[str, Any]:
         """Get connection and circuit breaker statistics."""
@@ -296,7 +303,7 @@ class ConnectionManager:
         start_time = time.time()
 
         try:
-            response = await self.request('GET', f"{url}/health", timeout=5)
+            response = await self.request('GET', f"{url}/health", timeout=DEFAULT_HEALTH_CHECK_TIMEOUT)
             duration = time.time() - start_time
 
             return {
