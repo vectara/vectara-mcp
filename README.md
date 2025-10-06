@@ -173,6 +173,40 @@ export VECTARA_API_KEY=your-vectara-api-key
 
 The server will automatically detect and use environment variables, providing the same secure experience.
 
+## Development and Release
+
+### Running Tests
+```bash
+# Run all tests
+python -m pytest tests/ -v
+
+# Run integration tests
+python -m pytest tests/test_integration.py -v -s
+
+# Run unit tests
+python -m pytest tests/test_server.py -v
+```
+
+### Releasing New Versions
+
+This project uses GitHub Actions for automated PyPI publishing. To release a new version:
+
+1. **Update version** in `pyproject.toml`
+2. **Commit and push** changes to main branch
+3. **Create and push a version tag**:
+   ```bash
+   git tag v<VERSION>
+   git push origin v<VERSION>
+   ```
+4. **GitHub Actions will automatically**:
+   - Run tests
+   - Build the package
+   - Publish to PyPI
+
+The workflow requires **PyPI trusted publishing** to be configured:
+- Go to [PyPI trusted publisher management](https://pypi.org/manage/account/publishing/)
+- Add this repository with workflow: `publish-to-pypi.yml`
+
 ## Acknowledgments ✨
 
 - [Model Context Protocol](https://modelcontextprotocol.io) for the MCP specification
