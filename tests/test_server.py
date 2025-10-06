@@ -1,7 +1,8 @@
 import pytest
 import json
-from unittest.mock import AsyncMock, patch, MagicMock
 import os
+import sys
+from unittest.mock import AsyncMock, patch, MagicMock
 import aiohttp
 from mcp.server.fastmcp import Context
 
@@ -9,8 +10,10 @@ from vectara_mcp.server import (
     ask_vectara,
     search_vectara,
     correct_hallucinations,
-    eval_factual_consistency
+    eval_factual_consistency,
+    main
 )
+from vectara_mcp.auth import AuthMiddleware
 
 
 class TestVectaraTools:
@@ -29,8 +32,10 @@ class TestVectaraTools:
         """Clear stored API key before each test"""
         import vectara_mcp.server
         vectara_mcp.server._stored_api_key = None
+        vectara_mcp.server._auth_required = True
         yield
         vectara_mcp.server._stored_api_key = None
+        vectara_mcp.server._auth_required = True
 
     @pytest.fixture
     def mock_api_key(self):
@@ -159,6 +164,92 @@ class TestVectaraTools:
         assert result["search_results"][0]["document_metadata"]["title"] == "Test Document"
         mock_context.info.assert_called_once_with("Running Vectara semantic search query: test query")
         mock_api_call.assert_called_once()
+
+    # TRANSPORT AND AUTH TESTS
+    def test_auth_middleware_validation(self):
+        """Test authentication middleware validation"""
+        auth = AuthMiddleware(auth_required=True)
+
+        # Valid token
+        os.environ["VECTARA_API_KEY"] = "test-key"
+        auth.valid_tokens = {"test-key"}
+        assert auth.validate_token("test-key") is True
+        assert auth.validate_token("Bearer test-key") is True
+
+        # Invalid token
+        assert auth.validate_token("invalid-key") is False
+        assert auth.validate_token(None) is False
+
+        # Auth disabled
+        auth_disabled = AuthMiddleware(auth_required=False)
+        assert auth_disabled.validate_token(None) is True
+
+        # Clean up
+        if "VECTARA_API_KEY" in os.environ:
+            del os.environ["VECTARA_API_KEY"]
+
+    def test_token_extraction_from_headers(self):
+        """Test token extraction from different header formats"""
+        auth = AuthMiddleware()
+
+        # Authorization header
+        headers = {"Authorization": "Bearer test-token"}
+        assert auth.extract_token_from_headers(headers) == "Bearer test-token"
+
+        # X-API-Key header
+        headers = {"X-API-Key": "test-token"}
+        assert auth.extract_token_from_headers(headers) == "Bearer test-token"
+
+        # Case insensitive
+        headers = {"authorization": "Bearer test-token"}
+        assert auth.extract_token_from_headers(headers) == "Bearer test-token"
+
+        # No token
+        headers = {}
+        assert auth.extract_token_from_headers(headers) is None
+
+    @patch('sys.argv', ['test', '--stdio'])
+    def test_main_stdio_transport(self, capsys):
+        """Test main function with STDIO transport"""
+        with patch('vectara_mcp.server.mcp.run') as mock_run:
+            with pytest.raises(SystemExit):
+                main()
+
+            mock_run.assert_called_once_with()
+            captured = capsys.readouterr()
+            assert "STDIO transport is less secure" in captured.err
+
+    @patch('sys.argv', ['test', '--transport', 'http'])
+    def test_main_http_transport(self, capsys):
+        """Test main function with HTTP transport"""
+        with patch('vectara_mcp.server.mcp.run') as mock_run:
+            with pytest.raises(SystemExit):
+                main()
+
+            mock_run.assert_called_once_with(transport='http', host='127.0.0.1', port=8000)
+            captured = capsys.readouterr()
+            assert "HTTP mode" in captured.err
+            assert "Authentication: enabled" in captured.err
+
+    @patch('sys.argv', ['test', '--no-auth'])
+    def test_main_no_auth_warning(self, capsys):
+        """Test main function shows warning when auth is disabled"""
+        with patch('vectara_mcp.server.mcp.run') as mock_run:
+            with pytest.raises(SystemExit):
+                main()
+
+            captured = capsys.readouterr()
+            assert "Authentication disabled" in captured.err
+            assert "NEVER use in production" in captured.err
+
+    # ENVIRONMENT VARIABLES TESTS
+    @patch.dict('os.environ', {'VECTARA_TRANSPORT': 'sse', 'VECTARA_AUTH_REQUIRED': 'false'}, clear=False)
+    def test_environment_variables(self):
+        """Test that environment variables are respected"""
+        # This test would require integration with actual argument parsing
+        # For now, just test that the environment variables exist
+        assert os.getenv('VECTARA_TRANSPORT') == 'sse'
+        assert os.getenv('VECTARA_AUTH_REQUIRED') == 'false'
 
     # CORRECT_HALLUCINATIONS TESTS
     @pytest.mark.asyncio

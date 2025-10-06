@@ -3,6 +3,7 @@
 ![GitHub Repo stars](https://img.shields.io/github/stars/Vectara/Vectara-mcp?style=social)
 ![PyPI version](https://img.shields.io/pypi/v/vectara-mcp.svg)
 ![License](https://img.shields.io/pypi/l/vectara-mcp.svg)
+![Security](https://img.shields.io/badge/security-first-brightgreen)
 
 > 🔌 **Compatible with [Claude Desktop](https://claude.ai/desktop), and any other MCP Client!**
 >
@@ -19,6 +20,94 @@ You can install the package directly from PyPI:
 
 ```bash
 pip install vectara-mcp
+```
+
+## Quick Start
+
+### Secure by Default (HTTP/SSE with Authentication)
+
+```bash
+# Start server with secure HTTP transport (DEFAULT)
+python -m vectara_mcp
+# Server running at http://127.0.0.1:8000 with authentication enabled
+```
+
+### Local Development Mode (STDIO)
+
+```bash
+# For Claude Desktop or local development (less secure)
+python -m vectara_mcp --stdio
+# ⚠️ Warning: STDIO transport is less secure. Use only for local development.
+```
+
+### Configuration Options
+
+```bash
+# Custom host and port
+python -m vectara_mcp --host 0.0.0.0 --port 8080
+
+# SSE transport mode
+python -m vectara_mcp --transport sse --path /sse
+
+# Disable authentication (DANGEROUS - dev only)
+python -m vectara_mcp --no-auth
+```
+
+## Transport Modes
+
+### HTTP Transport (Default - Recommended)
+- **Security:** Built-in authentication via bearer tokens
+- **Encryption:** HTTPS ready
+- **Rate Limiting:** 100 requests/minute by default
+- **CORS Protection:** Configurable origin validation
+- **Use Case:** Production deployments, cloud environments
+
+### SSE Transport
+- **Streaming:** Server-Sent Events for real-time updates
+- **Authentication:** Bearer token support
+- **Compatibility:** Works with legacy MCP clients
+- **Use Case:** Real-time streaming applications
+
+### STDIO Transport
+- **⚠️ Security Warning:** No transport-layer security
+- **Performance:** Low latency for local communication
+- **Use Case:** Local development, Claude Desktop
+- **Requirement:** Must be explicitly enabled with `--stdio` flag
+
+## Environment Variables
+
+```bash
+# Required
+export VECTARA_API_KEY="your-api-key"
+
+# Optional
+export VECTARA_AUTHORIZED_TOKENS="token1,token2"  # Additional auth tokens
+export VECTARA_ALLOWED_ORIGINS="http://localhost:*,https://app.example.com"
+export VECTARA_TRANSPORT="http"  # Default transport mode
+export VECTARA_AUTH_REQUIRED="true"  # Enforce authentication
+```
+
+## Authentication
+
+### HTTP/SSE Transport
+When using HTTP or SSE transport, authentication is required by default:
+
+```bash
+# Using curl with bearer token
+curl -H "Authorization: Bearer $VECTARA_API_KEY" \
+     -H "Content-Type: application/json" \
+     -X POST http://localhost:8000/call/ask_vectara \
+     -d '{"query": "What is Vectara?", "corpus_keys": ["my-corpus"]}'
+
+# Using X-API-Key header (alternative)
+curl -H "X-API-Key: $VECTARA_API_KEY" \
+     http://localhost:8000/sse
+```
+
+### Disabling Authentication (Development Only)
+```bash
+# ⚠️ NEVER use in production
+python -m vectara_mcp --no-auth
 ```
 
 ## Available Tools
@@ -98,26 +187,40 @@ pip install vectara-mcp
 
 ## Configuration with Claude Desktop
 
-Add to your claude_desktop_config.json:
+To use with Claude Desktop, update your configuration to use STDIO transport:
+
+```json
+{
+  "mcpServers": {
+    "Vectara": {
+      "command": "python",
+      "args": ["-m", "vectara_mcp", "--stdio"],
+      "env": {
+        "VECTARA_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+```
+
+Or using uv:
 
 ```json
 {
   "mcpServers": {
     "Vectara": {
       "command": "uv",
-      "args": [
-        "tool",
-        "run",
-        "vectara-mcp"
-      ]
+      "args": ["tool", "run", "vectara-mcp", "--stdio"]
     }
   }
 }
 ```
 
+**Note:** Claude Desktop requires STDIO transport. While less secure than HTTP, it's acceptable for local desktop use.
+
 ## Usage in Claude Desktop App
 
-Once the installation is complete, and the Claude desktop app is configured, you must completely close and re-open the Claude desktop app to see the Vectara-mcp server. You should see a hammer icon in the bottom left of the app, indicating available MCP tools, you can click on the hammer icon to see more detial on the Vectara-search and Vectara-extract tools.
+Once the installation is complete, and the Claude desktop app is configured, you must completely close and re-open the Claude desktop app to see the Vectara-mcp server. You should see a hammer icon in the bottom left of the app, indicating available MCP tools, you can click on the hammer icon to see more detail on the Vectara-search and Vectara-extract tools.
 
 Now claude will have complete access to the Vectara-mcp server, including all six Vectara tools.
 
@@ -149,65 +252,32 @@ Query: events in NYC?
 Corpus keys: ["your-corpus-key"]
 ```
 
-3. **Hallucination Correction**:
+3. **Hallucination Detection & Correction**:
 ```
 correct-hallucinations
-Generated text: "The capital of France is Berlin and it's located in Germany."
-Documents: ["Paris is the capital of France.", "Berlin is the capital of Germany."]
+Generated text: [text to check]
+Documents: ["source1", "source2"]
 ```
 
 4. **Factual Consistency Evaluation**:
 ```
 eval-factual-consistency
-Generated text: "The Eiffel Tower was built in 1887 in London."
-Documents: ["The Eiffel Tower was built in 1889 in Paris, France."]
+Generated text: [text to evaluate]
+Documents: ["reference1", "reference2"]
 ```
 
-## Alternative: Environment Variable Setup
+## Security Best Practices
 
-You can also set the `VECTARA_API_KEY` environment variable instead of using the setup tool:
+1. **Always use HTTP transport for production** - Never expose STDIO transport to the network
+2. **Keep authentication enabled** - Only disable with `--no-auth` for local testing
+3. **Use HTTPS in production** - Deploy behind a reverse proxy with TLS termination
+4. **Configure CORS properly** - Set `VECTARA_ALLOWED_ORIGINS` to restrict access
+5. **Rotate API keys regularly** - Update `VECTARA_API_KEY` and `VECTARA_AUTHORIZED_TOKENS`
+6. **Monitor rate limits** - Default 100 req/min, adjust based on your needs
 
-```bash
-export VECTARA_API_KEY=your-vectara-api-key
-```
+See [SECURITY.md](SECURITY.md) for detailed security guidelines.
 
-The server will automatically detect and use environment variables, providing the same secure experience.
+## Support
 
-## Development and Release
-
-### Running Tests
-```bash
-# Run all tests
-python -m pytest tests/ -v
-
-# Run integration tests
-python -m pytest tests/test_integration.py -v -s
-
-# Run unit tests
-python -m pytest tests/test_server.py -v
-```
-
-### Releasing New Versions
-
-This project uses GitHub Actions for automated PyPI publishing. To release a new version:
-
-1. **Update version** in `pyproject.toml`
-2. **Commit and push** changes to main branch
-3. **Create and push a version tag**:
-   ```bash
-   git tag v<VERSION>
-   git push origin v<VERSION>
-   ```
-4. **GitHub Actions will automatically**:
-   - Run tests
-   - Build the package
-   - Publish to PyPI
-
-The workflow requires **PyPI trusted publishing** to be configured:
-- Go to [PyPI trusted publisher management](https://pypi.org/manage/account/publishing/)
-- Add this repository with workflow: `publish-to-pypi.yml`
-
-## Acknowledgments ✨
-
-- [Model Context Protocol](https://modelcontextprotocol.io) for the MCP specification
-- [Anthropic](https://anthropic.com) for Claude Desktop
+For issues, questions, or contributions, please visit:
+https://github.com/vectara/vectara-mcp

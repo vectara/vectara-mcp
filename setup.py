@@ -1,8 +1,8 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="vectara-mcp",  # Replace with your package name
-    version="0.1.3",     # Start with an initial version
+    name="vectara-mcp",
+    version="0.2.0",
     description="Open source MCP server for Vectara",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
@@ -12,8 +12,12 @@ setup(
     packages=find_packages(),  # Automatically find all packages
     install_requires=[
         "mcp>=1.6.0",
+        "fastmcp>=0.4.1",
+        "fastapi>=0.95.0",
         "uvicorn>=0.34.0",
-        "vectara>=0.2.44",
+        "aiohttp>=3.8.0",
+        "tenacity>=8.0.0",
+        "python-dotenv>=1.0.0",
     ],
     classifiers=[
         "Development Status :: 4 - Beta",

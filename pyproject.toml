@@ -1,13 +1,17 @@
 [project]
 name = "vectara-mcp"
-version = "0.1.5"
-description = "A Model Context Protocol (MCP) server that provides capabilities using Vectara's RAG"
+version = "0.2.0"
+description = "A Model Context Protocol (MCP) server that provides tools from Vectara"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.6.0",
+    "fastmcp>=0.4.1",
+    "fastapi>=0.95.0",
     "uvicorn>=0.34.0",
     "aiohttp>=3.8.0",
+    "tenacity>=8.0.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]
