@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/vectara-vectara-mcp-badge.png)](https://mseep.ai/app/vectara-vectara-mcp)
+
 # Vectara MCP Server
 
 ![GitHub Repo stars](https://img.shields.io/github/stars/Vectara/Vectara-mcp?style=social)
