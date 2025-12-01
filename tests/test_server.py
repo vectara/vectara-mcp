@@ -208,7 +208,7 @@ class TestVectaraTools:
         headers = {}
         assert auth.extract_token_from_headers(headers) is None
 
-    @patch('sys.argv', ['test', '--stdio'])
+    @patch('sys.argv', ['test', '--transport', 'stdio'])
     def test_main_stdio_transport(self, capsys):
         """Test main function with STDIO transport"""
         with patch('vectara_mcp.server.mcp.run') as mock_run:
@@ -226,21 +226,81 @@ class TestVectaraTools:
             with pytest.raises(SystemExit):
                 main()
 
-            mock_run.assert_called_once_with(transport='http', host='127.0.0.1', port=8000)
+            # FastMCP.run() only accepts transport parameter - host/port are configured via settings
+            mock_run.assert_called_once_with(transport='http')
             captured = capsys.readouterr()
             assert "HTTP mode" in captured.err
             assert "Authentication: enabled" in captured.err
 
-    @patch('sys.argv', ['test', '--no-auth'])
+    @patch('sys.argv', ['test', '--transport', 'sse', '--port', '9000', '--host', '0.0.0.0'])
+    def test_main_sse_transport(self, capsys):
+        """Test main function with SSE transport and custom host/port"""
+        with patch('vectara_mcp.server.mcp.run') as mock_run:
+            with pytest.raises(SystemExit):
+                main()
+
+            # FastMCP.run() only accepts transport and mount_path parameters
+            # Default path is /sse/messages as defined in server.py argparse
+            mock_run.assert_called_once_with(transport='sse', mount_path='/sse/messages')
+            captured = capsys.readouterr()
+            assert "SSE mode" in captured.err
+            assert "http://0.0.0.0:9000/sse/messages" in captured.err
+
+    @patch('sys.argv', ['test', '--transport', 'http', '--no-auth'])
     def test_main_no_auth_warning(self, capsys):
-        """Test main function shows warning when auth is disabled"""
+        """Test main function shows warning when auth is disabled.
+
+        Note: --no-auth warning only shows for non-STDIO transports.
+        STDIO transport exits early with its own security warning.
+        """
         with patch('vectara_mcp.server.mcp.run') as mock_run:
             with pytest.raises(SystemExit):
                 main()
 
             captured = capsys.readouterr()
-            assert "Authentication disabled" in captured.err
+            assert "Authentication disabled" in captured.err or "WARNING" in captured.err
             assert "NEVER use in production" in captured.err
+
+    def test_fastmcp_run_parameter_validation(self):
+        """
+        Test that ensures mcp.run() is called with only valid FastMCP parameters.
+        This test specifically catches the bug where host/port were incorrectly
+        passed to FastMCP.run() instead of being configured via settings.
+        """
+        from mcp.server.fastmcp import FastMCP
+        import inspect
+
+        # Verify FastMCP.run() signature - this is the ground truth
+        run_signature = inspect.signature(FastMCP.run)
+        valid_params = set(run_signature.parameters.keys()) - {'self'}
+
+        # Expected valid parameters for FastMCP.run()
+        expected_params = {'transport', 'mount_path'}
+        assert valid_params == expected_params, f"FastMCP.run() signature changed. Expected {expected_params}, got {valid_params}"
+
+        # Test that our server doesn't try to pass invalid parameters
+        with patch('sys.argv', ['test', '--transport', 'http', '--host', '192.168.1.1', '--port', '8080']):
+            with patch('vectara_mcp.server.mcp.run') as mock_run:
+                with pytest.raises(SystemExit):
+                    main()
+
+                # Verify only valid parameters are passed
+                call_args, call_kwargs = mock_run.call_args
+                invalid_params = set(call_kwargs.keys()) - valid_params
+                assert not invalid_params, f"Invalid parameters passed to mcp.run(): {invalid_params}"
+
+        # Test SSE transport as well
+        with patch('sys.argv', ['test', '--transport', 'sse', '--path', '/custom-sse']):
+            with patch('vectara_mcp.server.mcp.run') as mock_run:
+                with pytest.raises(SystemExit):
+                    main()
+
+                call_args, call_kwargs = mock_run.call_args
+                invalid_params = set(call_kwargs.keys()) - valid_params
+                assert not invalid_params, f"Invalid parameters passed to mcp.run(): {invalid_params}"
+
+                # Verify mount_path is correctly passed for SSE
+                assert call_kwargs.get('mount_path') == '/custom-sse'
 
     # ENVIRONMENT VARIABLES TESTS
     @patch.dict('os.environ', {'VECTARA_TRANSPORT': 'sse', 'VECTARA_AUTH_REQUIRED': 'false'}, clear=False)

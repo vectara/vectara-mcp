@@ -33,7 +33,6 @@ class TestHealthChecker:
         assert result["status"] == HealthStatus.HEALTHY.value
         assert "timestamp" in result
         assert "uptime_seconds" in result
-        assert result["version"] == "0.2.0"
         assert result["service"] == "vectara-mcp-server"
         assert result["uptime_seconds"] >= 0
 

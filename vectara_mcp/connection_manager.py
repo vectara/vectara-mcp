@@ -7,12 +7,18 @@ for reliable communication with Vectara API.
 
 import asyncio
 import logging
+import ssl
 import time
 from enum import Enum
 from typing import Optional, Dict, Any
+
 import aiohttp
-import ssl
-from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import (
+    AsyncRetrying,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type
+)
 
 logger = logging.getLogger(__name__)
 
@@ -79,18 +85,20 @@ class CircuitBreaker:
                     self.state = CircuitState.HALF_OPEN
                     logger.info("Circuit breaker transitioning to HALF_OPEN")
                 else:
-                    raise Exception(f"Circuit breaker OPEN. Last failure: {self.last_failure_time}")
+                    raise RuntimeError(
+                        f"Circuit breaker OPEN. Last failure: {self.last_failure_time}"
+                    )
 
         try:
             result = await func(*args, **kwargs)
             await self._on_success()
             return result
-        except self.expected_exception as e:
+        except self.expected_exception:
             await self._on_failure()
             raise
-        except Exception as e:
+        except Exception:  # pylint: disable=broad-exception-caught
             # Unexpected exceptions don't trigger circuit breaker
-            logger.warning(f"Unexpected exception in circuit breaker: {e}")
+            logger.warning("Unexpected exception in circuit breaker", exc_info=True)
             raise
 
     def _should_attempt_reset(self) -> bool:
@@ -115,7 +123,9 @@ class CircuitBreaker:
 
             if self.failure_count >= self.failure_threshold:
                 self.state = CircuitState.OPEN
-                logger.warning(f"Circuit breaker OPEN after {self.failure_count} failures")
+                logger.warning(
+                    "Circuit breaker OPEN after %d failures", self.failure_count
+                )
 
     def get_state(self) -> Dict[str, Any]:
         """Get current circuit breaker state for monitoring."""
@@ -181,7 +191,12 @@ class ConnectionManager:
 
         async with self._lock:
             # Double-check after acquiring lock
-            if self._session is not None and self._session_loop == current_loop and not self._session.closed:
+            session_valid = (
+                self._session is not None
+                and self._session_loop == current_loop
+                and not self._session.closed
+            )
+            if session_valid:
                 return
 
             # Close existing session if it exists
@@ -311,6 +326,7 @@ class ConnectionManager:
 
         if self._session and hasattr(self._session.connector, '_conns'):
             # Get connection pool stats if available
+            # pylint: disable=protected-access
             try:
                 connector = self._session.connector
                 stats["connection_pool"] = {
@@ -322,6 +338,7 @@ class ConnectionManager:
             except (AttributeError, TypeError):
                 # Connector stats not available in this aiohttp version
                 pass
+            # pylint: enable=protected-access
 
         return stats
 
@@ -337,7 +354,10 @@ class ConnectionManager:
         start_time = time.time()
 
         try:
-            response = await self.request('GET', f"{url}/health", timeout=DEFAULT_HEALTH_CHECK_TIMEOUT)
+            health_url = f"{url}/health"
+            response = await self.request(
+                'GET', health_url, timeout=DEFAULT_HEALTH_CHECK_TIMEOUT
+            )
             duration = time.time() - start_time
 
             return {
@@ -346,7 +366,7 @@ class ConnectionManager:
                 "status_code": response.status,
                 "circuit_breaker_state": self._circuit_breaker.state.value
             }
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             duration = time.time() - start_time
             return {
                 "status": "unhealthy",

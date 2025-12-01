@@ -6,6 +6,7 @@ Provides bearer token validation for HTTP/SSE transports.
 
 import os
 import logging
+import time
 from typing import Optional, Callable
 from functools import wraps
 
@@ -119,7 +120,9 @@ def require_auth(auth_middleware: AuthMiddleware):
                 token = auth_middleware.extract_token_from_headers(headers)
 
                 if not auth_middleware.validate_token(token):
-                    return {"error": "Authentication required. Please provide a valid bearer token."}
+                    return {
+                        "error": "Authentication required. Provide a valid bearer token."
+                    }
 
             # For STDIO transport or if auth not required, proceed normally
             return await func(*args, **kwargs)
@@ -151,7 +154,7 @@ def add_security_headers(headers: dict) -> dict:
     return headers
 
 
-class RateLimiter:
+class RateLimiter:  # pylint: disable=too-few-public-methods
     """Simple in-memory rate limiter for API endpoints."""
 
     def __init__(self, max_requests: int = 100, window_seconds: int = 60):
@@ -174,7 +177,6 @@ class RateLimiter:
         Returns:
             True if request is allowed, False if rate limited
         """
-        import time
         current_time = time.time()
 
         if client_id not in self.requests:
@@ -188,7 +190,7 @@ class RateLimiter:
 
         # Check if limit exceeded
         if len(self.requests[client_id]) >= self.max_requests:
-            logger.warning(f"Rate limit exceeded for client: {client_id}")
+            logger.warning("Rate limit exceeded for client: %s", client_id)
             return False
 
         # Add current request
@@ -229,5 +231,5 @@ def validate_origin(origin: Optional[str]) -> bool:
         elif origin == allowed_origin:
             return True
 
-    logger.warning(f"Rejected request from unauthorized origin: {origin}")
+    logger.warning("Rejected request from unauthorized origin: %s", origin)
     return False

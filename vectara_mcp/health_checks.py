@@ -5,15 +5,15 @@ Provides liveness, readiness, and detailed health status endpoints
 for production deployment with load balancers and orchestration platforms.
 """
 
-import asyncio
 import logging
+import os
 import time
-from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, Optional
 
 from .connection_manager import get_connection_manager
-from . import __version__
+from ._version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,7 @@ class HealthChecker:
             checks.append(connection_check)
             if connection_check.status != HealthStatus.HEALTHY:
                 overall_status = HealthStatus.UNHEALTHY
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             checks.append(HealthCheck(
                 name="connection_manager",
                 status=HealthStatus.UNHEALTHY,
@@ -95,9 +95,10 @@ class HealthChecker:
             checks.append(vectara_check)
             if vectara_check.status == HealthStatus.UNHEALTHY:
                 overall_status = HealthStatus.UNHEALTHY
-            elif vectara_check.status == HealthStatus.DEGRADED and overall_status == HealthStatus.HEALTHY:
+            elif (vectara_check.status == HealthStatus.DEGRADED
+                  and overall_status == HealthStatus.HEALTHY):
                 overall_status = HealthStatus.DEGRADED
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             checks.append(HealthCheck(
                 name="vectara_api",
                 status=HealthStatus.UNHEALTHY,
@@ -151,7 +152,7 @@ class HealthChecker:
             checks.append(connection_check)
             if connection_check.status != HealthStatus.HEALTHY:
                 overall_status = HealthStatus.DEGRADED
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             checks.append(HealthCheck(
                 name="connection_manager_detailed",
                 status=HealthStatus.UNHEALTHY,
@@ -165,9 +166,10 @@ class HealthChecker:
             checks.append(vectara_check)
             if vectara_check.status == HealthStatus.UNHEALTHY:
                 overall_status = HealthStatus.UNHEALTHY
-            elif vectara_check.status == HealthStatus.DEGRADED and overall_status == HealthStatus.HEALTHY:
+            elif (vectara_check.status == HealthStatus.DEGRADED
+                  and overall_status == HealthStatus.HEALTHY):
                 overall_status = HealthStatus.DEGRADED
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             checks.append(HealthCheck(
                 name="vectara_api_detailed",
                 status=HealthStatus.UNHEALTHY,
@@ -175,10 +177,9 @@ class HealthChecker:
             ))
             overall_status = HealthStatus.UNHEALTHY
 
-
         # Memory usage (if available)
         try:
-            import psutil
+            import psutil  # pylint: disable=import-outside-toplevel
             process = psutil.Process()
             metrics["memory"] = {
                 "rss_mb": round(process.memory_info().rss / 1024 / 1024, 2),
@@ -187,7 +188,7 @@ class HealthChecker:
             }
         except ImportError:
             metrics["memory"] = {"error": "psutil not available"}
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             metrics["memory"] = {"error": str(e)}
 
         total_time = round((time.time() - start_time) * 1000, 2)
@@ -228,15 +229,14 @@ class HealthChecker:
                     response_time_ms=response_time,
                     details={"circuit_breaker_state": stats["circuit_breaker"]["state"]}
                 )
-            else:
-                return HealthCheck(
-                    name="connection_manager",
-                    status=HealthStatus.UNHEALTHY,
-                    message="Connection manager not initialized",
-                    response_time_ms=response_time
-                )
+            return HealthCheck(
+                name="connection_manager",
+                status=HealthStatus.UNHEALTHY,
+                message="Connection manager not initialized",
+                response_time_ms=response_time
+            )
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             response_time = round((time.time() - start_time) * 1000, 2)
             return HealthCheck(
                 name="connection_manager",
@@ -279,15 +279,14 @@ class HealthChecker:
                     response_time_ms=response_time,
                     details=stats
                 )
-            else:
-                return HealthCheck(
-                    name="connection_manager_detailed",
-                    status=HealthStatus.UNHEALTHY,
-                    message="Connection manager not initialized",
-                    response_time_ms=response_time
-                )
+            return HealthCheck(
+                name="connection_manager_detailed",
+                status=HealthStatus.UNHEALTHY,
+                message="Connection manager not initialized",
+                response_time_ms=response_time
+            )
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             response_time = round((time.time() - start_time) * 1000, 2)
             return HealthCheck(
                 name="connection_manager_detailed",
@@ -336,7 +335,7 @@ class HealthChecker:
             self.last_check_cache[cache_key] = (result, time.time())
             return result
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             response_time = round((time.time() - start_time) * 1000, 2)
             result = HealthCheck(
                 name="vectara_api",
@@ -368,7 +367,3 @@ async def get_readiness() -> Dict[str, Any]:
 async def get_detailed_health() -> Dict[str, Any]:
     """Get detailed health status."""
     return await health_checker.detailed_health_check()
-
-
-# Import os here to avoid issues if not available
-import os
