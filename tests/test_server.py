@@ -217,20 +217,22 @@ class TestVectaraTools:
 
             mock_run.assert_called_once_with()
             captured = capsys.readouterr()
-            assert "STDIO transport is less secure" in captured.err
+            # Logger outputs to stdout, not stderr
+            assert "STDIO transport is less secure" in captured.out
 
-    @patch('sys.argv', ['test', '--transport', 'http'])
-    def test_main_http_transport(self, capsys):
-        """Test main function with HTTP transport"""
+    @patch('sys.argv', ['test'])
+    def test_main_default_transport(self, capsys):
+        """Test main function with default transport (SSE)"""
         with patch('vectara_mcp.server.mcp.run') as mock_run:
             with pytest.raises(SystemExit):
                 main()
 
-            # FastMCP.run() only accepts transport parameter - host/port are configured via settings
-            mock_run.assert_called_once_with(transport='http')
+            # SSE is now the default transport
+            mock_run.assert_called_once_with(transport='sse', mount_path='/sse/messages')
             captured = capsys.readouterr()
-            assert "HTTP mode" in captured.err
-            assert "Authentication: enabled" in captured.err
+            # Logger outputs to stdout, not stderr
+            assert "SSE mode" in captured.out
+            assert "Authentication: enabled" in captured.out
 
     @patch('sys.argv', ['test', '--transport', 'sse', '--port', '9000', '--host', '0.0.0.0'])
     def test_main_sse_transport(self, capsys):
@@ -243,10 +245,25 @@ class TestVectaraTools:
             # Default path is /sse/messages as defined in server.py argparse
             mock_run.assert_called_once_with(transport='sse', mount_path='/sse/messages')
             captured = capsys.readouterr()
-            assert "SSE mode" in captured.err
-            assert "http://0.0.0.0:9000/sse/messages" in captured.err
+            # Logger outputs to stdout, not stderr
+            assert "SSE mode" in captured.out
+            assert "http://0.0.0.0:9000/sse/messages" in captured.out
 
-    @patch('sys.argv', ['test', '--transport', 'http', '--no-auth'])
+    @patch('sys.argv', ['test', '--transport', 'streamable-http', '--port', '9000'])
+    def test_main_streamable_http_transport(self, capsys):
+        """Test main function with Streamable HTTP transport"""
+        with patch('vectara_mcp.server.mcp.run') as mock_run:
+            with pytest.raises(SystemExit):
+                main()
+
+            # Streamable HTTP uses the newer MCP 2025 spec
+            mock_run.assert_called_once_with(transport='streamable-http')
+            captured = capsys.readouterr()
+            # Logger outputs to stdout, not stderr
+            assert "Streamable HTTP mode" in captured.out
+            assert "http://127.0.0.1:9000/mcp" in captured.out
+
+    @patch('sys.argv', ['test', '--transport', 'sse', '--no-auth'])
     def test_main_no_auth_warning(self, capsys):
         """Test main function shows warning when auth is disabled.
 
@@ -258,8 +275,9 @@ class TestVectaraTools:
                 main()
 
             captured = capsys.readouterr()
-            assert "Authentication disabled" in captured.err or "WARNING" in captured.err
-            assert "NEVER use in production" in captured.err
+            # Logger outputs to stdout, not stderr
+            assert "Authentication disabled" in captured.out
+            assert "NEVER use in production" in captured.out
 
     def test_fastmcp_run_parameter_validation(self):
         """
@@ -278,8 +296,8 @@ class TestVectaraTools:
         expected_params = {'transport', 'mount_path'}
         assert valid_params == expected_params, f"FastMCP.run() signature changed. Expected {expected_params}, got {valid_params}"
 
-        # Test that our server doesn't try to pass invalid parameters
-        with patch('sys.argv', ['test', '--transport', 'http', '--host', '192.168.1.1', '--port', '8080']):
+        # Test that streamable-http doesn't try to pass invalid parameters
+        with patch('sys.argv', ['test', '--transport', 'streamable-http', '--host', '192.168.1.1', '--port', '8080']):
             with patch('vectara_mcp.server.mcp.run') as mock_run:
                 with pytest.raises(SystemExit):
                     main()

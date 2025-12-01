@@ -9,10 +9,14 @@ import sys
 
 import aiohttp
 from mcp.server.fastmcp import FastMCP, Context
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from vectara_mcp._version import __version__
-from vectara_mcp.auth import AuthMiddleware, RateLimiter
-from vectara_mcp.connection_manager import get_connection_manager, cleanup_connections
+from vectara_mcp.auth import AuthMiddleware
+from vectara_mcp.connection_manager import (
+    get_connection_manager, cleanup_connections, connection_manager
+)
 from vectara_mcp.health_checks import get_liveness, get_readiness, get_detailed_health
 
 logging.basicConfig(level=logging.INFO)
@@ -27,19 +31,12 @@ API_KEY_ERROR_MESSAGE = (
     "or set VECTARA_API_KEY environment variable."
 )
 
-# Rate limiting configuration
-DEFAULT_MAX_REQUESTS = 100
-DEFAULT_WINDOW_SECONDS = 60
-
 # Create the Vectara MCP server with default settings
 # These will be overridden in main() by updating the settings
 mcp = FastMCP("vectara")
 
-# Initialize authentication and security components
+# Initialize authentication component
 _auth_middleware = None  # pylint: disable=invalid-name
-_rate_limiter = RateLimiter(
-    max_requests=DEFAULT_MAX_REQUESTS, window_seconds=DEFAULT_WINDOW_SECONDS
-)
 
 # Global API key storage (session-scoped)
 _stored_api_key: str | None = None
@@ -373,107 +370,56 @@ async def clear_vectara_api_key(ctx: Context) -> str:
     return "API key cleared from server memory."
 
 
-# Health Check Tools
-@mcp.tool()
-async def health_check(
-    ctx: Context
-) -> dict:
-    """
-    Get server liveness status (basic health check).
+# HTTP Health Check Endpoints (for Kubernetes/load balancers)
+# These are exposed as HTTP routes, not MCP tools
 
-    This endpoint checks if the server process is running and responding.
-    Used by load balancers to determine if traffic should be routed here.
 
-    Returns:
-        dict: Server liveness status with uptime and version info.
-    """
-    if ctx:
-        ctx.info("Performing health check")
-
+@mcp.custom_route("/health", methods=["GET"])
+async def http_health_check(request: Request) -> JSONResponse:  # pylint: disable=unused-argument
+    """Liveness probe - is the server running?"""
     try:
-        return await get_liveness()
+        result = await get_liveness()
+        return JSONResponse(result)
     except Exception as e:  # pylint: disable=broad-exception-caught
-        return {"error": _format_error("health check", e)}
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@mcp.tool()
-async def readiness_check(
-    ctx: Context
-) -> dict:
-    """
-    Get server readiness status (dependency health check).
-
-    This endpoint checks if the server can handle traffic by validating
-    critical dependencies like connection manager and Vectara API connectivity.
-    Used by orchestration platforms to determine deployment readiness.
-
-    Returns:
-        dict: Server readiness status with dependency check results.
-    """
-    if ctx:
-        ctx.info("Performing readiness check")
-
+@mcp.custom_route("/ready", methods=["GET"])
+async def http_readiness_check(request: Request) -> JSONResponse:  # pylint: disable=unused-argument
+    """Readiness probe - can the server handle traffic?"""
     try:
-        return await get_readiness()
+        result = await get_readiness()
+        status_code = 200 if result.get("status") == "healthy" else 503
+        return JSONResponse(result, status_code=status_code)
     except Exception as e:  # pylint: disable=broad-exception-caught
-        return {"error": _format_error("readiness check", e)}
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@mcp.tool()
-async def detailed_health_check(
-    ctx: Context
-) -> dict:
-    """
-    Get comprehensive server health status with detailed metrics.
-
-    This endpoint provides detailed information about all system components,
-    performance metrics, connection pool status, and configuration.
-    Used for monitoring, debugging, and operational visibility.
-
-    Returns:
-        dict: Comprehensive health status with detailed metrics and component states.
-    """
-    if ctx:
-        ctx.info("Performing detailed health check")
-
+@mcp.custom_route("/health/detailed", methods=["GET"])
+async def http_detailed_health_check(request: Request) -> JSONResponse:  # pylint: disable=unused-argument
+    """Detailed health with metrics - for monitoring dashboards."""
     try:
-        return await get_detailed_health()
+        result = await get_detailed_health()
+        status_code = 200 if result.get("status") == "healthy" else 503
+        return JSONResponse(result, status_code=status_code)
     except Exception as e:  # pylint: disable=broad-exception-caught
-        return {"error": _format_error("detailed health check", e)}
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@mcp.tool()
-async def get_server_stats(
-    ctx: Context
-) -> dict:
-    """
-    Get server statistics and metrics for monitoring.
-
-    Provides runtime statistics including connection pool status,
-    circuit breaker state, retry metrics, and performance data.
-
-    Returns:
-        dict: Server statistics and operational metrics.
-    """
-    if ctx:
-        ctx.info("Getting server statistics")
-
+@mcp.custom_route("/stats", methods=["GET"])
+async def http_server_stats(request: Request) -> JSONResponse:  # pylint: disable=unused-argument
+    """Server statistics for monitoring."""
     try:
-        # pylint: disable=import-outside-toplevel
-        from vectara_mcp.connection_manager import connection_manager
-
         stats = {
             "connection_manager": connection_manager.get_stats(),
             "server_info": {
                 "version": __version__,
-                "transport": "http",  # Could be made dynamic
                 "auth_enabled": bool(_auth_required)
             }
         }
-
-        return stats
+        return JSONResponse(stats)
     except Exception as e:  # pylint: disable=broad-exception-caught
-        return {"error": _format_error("server stats", e)}
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 # Query tool
@@ -768,20 +714,20 @@ def main():
     parser = argparse.ArgumentParser(description="Vectara MCP Server")
     parser.add_argument(
         '--transport',
-        default='stdio',
-        choices=['http', 'sse', 'stdio'],
-        help='Transport protocol (default: stdio)'
+        default='sse',
+        choices=['stdio', 'sse', 'streamable-http'],
+        help='Transport protocol: stdio, sse (default), or streamable-http'
     )
     parser.add_argument(
         '--host',
         default='127.0.0.1',
-        help='Host address for HTTP/SSE transport (default: 127.0.0.1)'
+        help='Host address for network transports (default: 127.0.0.1)'
     )
     parser.add_argument(
         '--port',
         type=int,
         default=8000,
-        help='Port for HTTP/SSE transport (default: 8000)'
+        help='Port for network transports (default: 8000)'
     )
     parser.add_argument(
         '--no-auth',
@@ -796,7 +742,6 @@ def main():
 
     args = parser.parse_args()
 
-
     # Configure authentication based on transport and flags
     auth_enabled = args.transport != 'stdio' and not args.no_auth
 
@@ -808,27 +753,21 @@ def main():
 
     # Display startup information
     if args.transport == 'stdio':
-        print(
-            "Warning: STDIO transport is less secure. Use only for local dev.",
-            file=sys.stderr
-        )
-        print("Starting Vectara MCP Server (STDIO mode)...", file=sys.stderr)
+        logger.warning("STDIO transport is less secure. Use only for local dev.")
+        logger.info("Starting Vectara MCP Server (STDIO mode)...")
         mcp.run()
         sys.exit(0)
     else:
         if args.no_auth:
-            print(
-                "WARNING: Authentication disabled. NEVER use in production!",
-                file=sys.stderr
-            )
+            logger.warning("Authentication disabled. NEVER use in production!")
 
-        transport_name = "HTTP" if args.transport == 'http' else "SSE"
+        transport_name = "Streamable HTTP" if args.transport == 'streamable-http' else "SSE"
         auth_status = "enabled" if auth_enabled else "DISABLED"
-        path_suffix = args.path if args.transport == 'sse' else ''
+        path_suffix = args.path if args.transport == 'sse' else '/mcp'
 
-        print(f"Starting Vectara MCP Server ({transport_name} mode)", file=sys.stderr)
-        print(f"Server: http://{args.host}:{args.port}{path_suffix}", file=sys.stderr)
-        print(f"Authentication: {auth_status}", file=sys.stderr)
+        logger.info("Starting Vectara MCP Server (%s mode)", transport_name)
+        logger.info("Server: http://%s:%s%s", args.host, args.port, path_suffix)
+        logger.info("Authentication: %s", auth_status)
 
         # Initialize authentication middleware
         initialize_auth(auth_enabled)
@@ -837,10 +776,10 @@ def main():
         _setup_signal_handlers()
         _setup_cleanup()
 
-        if args.transport == 'http':
-            mcp.run(transport='http')
-        else:  # sse
+        if args.transport == 'sse':
             mcp.run(transport='sse', mount_path=args.path)
+        else:  # streamable-http
+            mcp.run(transport='streamable-http')
 
         sys.exit(0)
 
