@@ -209,19 +209,17 @@ class TestVectaraTools:
         assert auth.extract_token_from_headers(headers) is None
 
     @patch('sys.argv', ['test', '--transport', 'stdio'])
-    def test_main_stdio_transport(self, capsys):
+    def test_main_stdio_transport(self, caplog):
         """Test main function with STDIO transport"""
         with patch('vectara_mcp.server.mcp.run') as mock_run:
             with pytest.raises(SystemExit):
                 main()
 
             mock_run.assert_called_once_with()
-            captured = capsys.readouterr()
-            # Logger outputs to stdout, not stderr
-            assert "STDIO transport is less secure" in captured.out
+            assert "STDIO transport is less secure" in caplog.text
 
     @patch('sys.argv', ['test'])
-    def test_main_default_transport(self, capsys):
+    def test_main_default_transport(self, caplog):
         """Test main function with default transport (SSE)"""
         with patch('vectara_mcp.server.mcp.run') as mock_run:
             with pytest.raises(SystemExit):
@@ -229,13 +227,11 @@ class TestVectaraTools:
 
             # SSE is now the default transport
             mock_run.assert_called_once_with(transport='sse', mount_path='/sse/messages')
-            captured = capsys.readouterr()
-            # Logger outputs to stdout, not stderr
-            assert "SSE mode" in captured.out
-            assert "Authentication: enabled" in captured.out
+            assert "SSE mode" in caplog.text
+            assert "Authentication: enabled" in caplog.text
 
     @patch('sys.argv', ['test', '--transport', 'sse', '--port', '9000', '--host', '0.0.0.0'])
-    def test_main_sse_transport(self, capsys):
+    def test_main_sse_transport(self, caplog):
         """Test main function with SSE transport and custom host/port"""
         with patch('vectara_mcp.server.mcp.run') as mock_run:
             with pytest.raises(SystemExit):
@@ -244,13 +240,11 @@ class TestVectaraTools:
             # FastMCP.run() only accepts transport and mount_path parameters
             # Default path is /sse/messages as defined in server.py argparse
             mock_run.assert_called_once_with(transport='sse', mount_path='/sse/messages')
-            captured = capsys.readouterr()
-            # Logger outputs to stdout, not stderr
-            assert "SSE mode" in captured.out
-            assert "http://0.0.0.0:9000/sse/messages" in captured.out
+            assert "SSE mode" in caplog.text
+            assert "http://0.0.0.0:9000/sse/messages" in caplog.text
 
     @patch('sys.argv', ['test', '--transport', 'streamable-http', '--port', '9000'])
-    def test_main_streamable_http_transport(self, capsys):
+    def test_main_streamable_http_transport(self, caplog):
         """Test main function with Streamable HTTP transport"""
         with patch('vectara_mcp.server.mcp.run') as mock_run:
             with pytest.raises(SystemExit):
@@ -258,13 +252,11 @@ class TestVectaraTools:
 
             # Streamable HTTP uses the newer MCP 2025 spec
             mock_run.assert_called_once_with(transport='streamable-http')
-            captured = capsys.readouterr()
-            # Logger outputs to stdout, not stderr
-            assert "Streamable HTTP mode" in captured.out
-            assert "http://127.0.0.1:9000/mcp" in captured.out
+            assert "Streamable HTTP mode" in caplog.text
+            assert "http://127.0.0.1:9000/mcp" in caplog.text
 
     @patch('sys.argv', ['test', '--transport', 'sse', '--no-auth'])
-    def test_main_no_auth_warning(self, capsys):
+    def test_main_no_auth_warning(self, caplog):
         """Test main function shows warning when auth is disabled.
 
         Note: --no-auth warning only shows for non-STDIO transports.
@@ -274,10 +266,8 @@ class TestVectaraTools:
             with pytest.raises(SystemExit):
                 main()
 
-            captured = capsys.readouterr()
-            # Logger outputs to stdout, not stderr
-            assert "Authentication disabled" in captured.out
-            assert "NEVER use in production" in captured.out
+            assert "Authentication disabled" in caplog.text
+            assert "NEVER use in production" in caplog.text
 
     def test_fastmcp_run_parameter_validation(self):
         """
