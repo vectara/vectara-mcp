@@ -1,52 +1,42 @@
-import logging
-import json
-import aiohttp
-import os
 import argparse
-import sys
 import atexit
-import signal
 import asyncio
+import json
+import logging
+import os
+import signal
+import sys
 
-logger = logging.getLogger(__name__)
-
+import aiohttp
 from mcp.server.fastmcp import FastMCP, Context
-from vectara_mcp.auth import (
-    AuthMiddleware,
-    require_auth,
-    add_security_headers,
-    RateLimiter,
-    validate_origin
-)
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+from vectara_mcp._version import __version__
+from vectara_mcp.auth import AuthMiddleware
 from vectara_mcp.connection_manager import (
-    get_connection_manager,
-    cleanup_connections
+    get_connection_manager, cleanup_connections, connection_manager
 )
-from vectara_mcp.health_checks import (
-    get_liveness,
-    get_readiness,
-    get_detailed_health
-)
-from vectara_mcp import __version__
+from vectara_mcp.health_checks import get_liveness, get_readiness, get_detailed_health
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Constants
 VECTARA_BASE_URL = "https://api.vectara.io/v2"
 VHC_MODEL_NAME = "vhc-large-1.0"
 DEFAULT_LANGUAGE = "en"
-API_KEY_ERROR_MESSAGE = "API key not configured. Please use 'setup_vectara_api_key' tool first or set VECTARA_API_KEY environment variable."
+API_KEY_ERROR_MESSAGE = (
+    "API key not configured. Please use 'setup_vectara_api_key' tool first "
+    "or set VECTARA_API_KEY environment variable."
+)
 
-# Rate limiting configuration
-DEFAULT_MAX_REQUESTS = 100
-DEFAULT_WINDOW_SECONDS = 60
-
-# Create the Vectara MCP server
+# Create the Vectara MCP server with default settings
+# These will be overridden in main() by updating the settings
 mcp = FastMCP("vectara")
 
-# Initialize authentication and security components
-auth_middleware = None
-rate_limiter = RateLimiter(max_requests=DEFAULT_MAX_REQUESTS, window_seconds=DEFAULT_WINDOW_SECONDS)
+# Initialize authentication component
+_auth_middleware = None  # pylint: disable=invalid-name
 
 # Global API key storage (session-scoped)
 _stored_api_key: str | None = None
@@ -59,8 +49,8 @@ def initialize_auth(auth_required: bool):
     Args:
         auth_required: Whether authentication is required
     """
-    global auth_middleware
-    auth_middleware = AuthMiddleware(auth_required=auth_required)
+    global _auth_middleware  # pylint: disable=global-statement
+    _auth_middleware = AuthMiddleware(auth_required=auth_required)
 
 def _mask_api_key(api_key: str) -> str:
     """Mask API key for safe logging/display.
@@ -81,8 +71,6 @@ def _get_api_key() -> str | None:
     Returns:
         str: API key if available, None otherwise
     """
-    global _stored_api_key
-
     # Priority 1: Stored API key
     if _stored_api_key:
         return _stored_api_key
@@ -124,11 +112,13 @@ def _validate_api_key(api_key_override: str = None) -> str:
         str: Valid API key
 
     Raises:
-        Exception: If no API key is configured
+        ValueError: If no API key is configured
     """
     api_key = api_key_override or _get_api_key()
     if not api_key:
-        raise Exception("API key not configured. Please use 'setup_vectara_api_key' tool first.")
+        raise ValueError(
+            "API key not configured. Please use 'setup_vectara_api_key' tool first."
+        )
     return api_key
 
 def _build_headers(api_key: str) -> dict:
@@ -146,36 +136,36 @@ def _build_headers(api_key: str) -> dict:
         "Accept": "application/json"
     }
 
-async def _handle_http_response(response: aiohttp.ClientResponse, error_context: str = "API") -> dict:
+async def _handle_http_response(
+    response: aiohttp.ClientResponse, error_context: str = "API"
+) -> dict:
     """Handle HTTP response with unified error handling.
 
     Args:
         response: The aiohttp response object
-        error_context: Context string for error messages (e.g., "query", "hallucination correction")
+        error_context: Context string for error messages
 
     Returns:
         dict: Response JSON data
 
     Raises:
-        Exception: With descriptive error message based on status code
+        RuntimeError: With descriptive error message based on status code
     """
     if response.status == 200:
         return await response.json()
-    elif response.status == 400:
+    if response.status == 400:
         error_text = await response.text()
-        raise Exception(f"Bad request: {error_text}")
-    elif response.status == 403:
+        raise RuntimeError(f"Bad request: {error_text}")
+    if response.status == 403:
         if "hallucination" in error_context.lower():
-            raise Exception(f"Permissions do not allow {error_context}.")
-        else:
-            raise Exception("Permission denied. Check your API key and corpus access.")
-    elif response.status == 404:
-        raise Exception("Corpus not found. Check your corpus keys.")
-    elif response.status == 422:
-        raise Exception("Language not supported by service.")
-    else:
-        error_text = await response.text()
-        raise Exception(f"API error {response.status}: {error_text}")
+            raise PermissionError(f"Permissions do not allow {error_context}.")
+        raise PermissionError("Permission denied. Check your API key and corpus access.")
+    if response.status == 404:
+        raise LookupError("Corpus not found. Check your corpus keys.")
+    if response.status == 422:
+        raise ValueError("Language not supported by service.")
+    error_text = await response.text()
+    raise RuntimeError(f"API error {response.status}: {error_text}")
 
 async def _make_api_request(
     url: str,
@@ -226,11 +216,13 @@ async def _make_api_request(
         async with response:
             return await _handle_http_response(response, error_context)
 
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         # Log the error with context
-        logger.error(f"API request failed: {error_context} - {str(e)}")
+        logger.error("API request failed: %s - %s", error_context, str(e))
         raise
 
+
+# pylint: disable=too-many-arguments,too-many-positional-arguments
 def _build_query_payload(
     query: str,
     corpus_keys: list[str],
@@ -324,7 +316,7 @@ async def setup_vectara_api_key(
     Returns:
         str: Success message with masked API key or error message.
     """
-    global _stored_api_key
+    global _stored_api_key  # pylint: disable=global-statement
 
     if not api_key:
         return "API key is required."
@@ -336,7 +328,7 @@ async def setup_vectara_api_key(
         # Test the API key with a minimal query to validate it
         test_payload = _build_query_payload(
             query="test",
-            corpus_keys=["test"],  # This will likely fail but we just want to test API key auth
+            corpus_keys=["test"],  # Will likely fail but tests API key auth
             enable_generation=False
         )
 
@@ -348,17 +340,18 @@ async def setup_vectara_api_key(
         masked_key = _mask_api_key(api_key)
         return f"API key configured successfully: {masked_key}"
 
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         error_msg = str(e)
-        if "403" in error_msg or "401" in error_msg or "Permission denied" in error_msg or "API key error" in error_msg:
+        auth_errors = ["403", "401", "Permission denied", "API key error"]
+        if any(err in error_msg for err in auth_errors):
             return "Invalid API key. Please check your Vectara API key and try again."
-        elif any(status in error_msg for status in ["400", "404", "Bad request", "Corpus not found"]):
+        request_errors = ["400", "404", "Bad request", "Corpus not found"]
+        if any(status in error_msg for status in request_errors):
             # These errors indicate API key is valid but request failed for other reasons
             _stored_api_key = api_key
             masked_key = _mask_api_key(api_key)
             return f"API key configured successfully: {masked_key}"
-        else:
-            return f"API validation failed: {error_msg}"
+        return f"API validation failed: {error_msg}"
 
 @mcp.tool()
 async def clear_vectara_api_key(ctx: Context) -> str:
@@ -368,7 +361,7 @@ async def clear_vectara_api_key(ctx: Context) -> str:
     Returns:
         str: Confirmation message.
     """
-    global _stored_api_key
+    global _stored_api_key  # pylint: disable=global-statement
 
     if ctx:
         ctx.info("Clearing stored Vectara API key")
@@ -377,109 +370,60 @@ async def clear_vectara_api_key(ctx: Context) -> str:
     return "API key cleared from server memory."
 
 
-# Health Check Tools
-@mcp.tool()
-async def health_check(
-    ctx: Context
-) -> dict:
-    """
-    Get server liveness status (basic health check).
+# HTTP Health Check Endpoints (for Kubernetes/load balancers)
+# These are exposed as HTTP routes, not MCP tools
 
-    This endpoint checks if the server process is running and responding.
-    Used by load balancers to determine if traffic should be routed here.
 
-    Returns:
-        dict: Server liveness status with uptime and version info.
-    """
-    if ctx:
-        ctx.info("Performing health check")
-
+@mcp.custom_route("/health", methods=["GET"])
+async def http_health_check(request: Request) -> JSONResponse:  # pylint: disable=unused-argument
+    """Liveness probe - is the server running?"""
     try:
-        return await get_liveness()
-    except Exception as e:
-        return {"error": _format_error("health check", e)}
+        result = await get_liveness()
+        return JSONResponse(result)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@mcp.tool()
-async def readiness_check(
-    ctx: Context
-) -> dict:
-    """
-    Get server readiness status (dependency health check).
-
-    This endpoint checks if the server can handle traffic by validating
-    critical dependencies like connection manager and Vectara API connectivity.
-    Used by orchestration platforms to determine deployment readiness.
-
-    Returns:
-        dict: Server readiness status with dependency check results.
-    """
-    if ctx:
-        ctx.info("Performing readiness check")
-
+@mcp.custom_route("/ready", methods=["GET"])
+async def http_readiness_check(request: Request) -> JSONResponse:  # pylint: disable=unused-argument
+    """Readiness probe - can the server handle traffic?"""
     try:
-        return await get_readiness()
-    except Exception as e:
-        return {"error": _format_error("readiness check", e)}
+        result = await get_readiness()
+        status_code = 200 if result.get("status") == "healthy" else 503
+        return JSONResponse(result, status_code=status_code)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@mcp.tool()
-async def detailed_health_check(
-    ctx: Context
-) -> dict:
-    """
-    Get comprehensive server health status with detailed metrics.
-
-    This endpoint provides detailed information about all system components,
-    performance metrics, connection pool status, and configuration.
-    Used for monitoring, debugging, and operational visibility.
-
-    Returns:
-        dict: Comprehensive health status with detailed metrics and component states.
-    """
-    if ctx:
-        ctx.info("Performing detailed health check")
-
+@mcp.custom_route("/health/detailed", methods=["GET"])
+async def http_detailed_health_check(request: Request) -> JSONResponse:  # pylint: disable=unused-argument
+    """Detailed health with metrics - for monitoring dashboards."""
     try:
-        return await get_detailed_health()
-    except Exception as e:
-        return {"error": _format_error("detailed health check", e)}
+        result = await get_detailed_health()
+        status_code = 200 if result.get("status") == "healthy" else 503
+        return JSONResponse(result, status_code=status_code)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@mcp.tool()
-async def get_server_stats(
-    ctx: Context
-) -> dict:
-    """
-    Get server statistics and metrics for monitoring.
-
-    Provides runtime statistics including connection pool status,
-    circuit breaker state, retry metrics, and performance data.
-
-    Returns:
-        dict: Server statistics and operational metrics.
-    """
-    if ctx:
-        ctx.info("Getting server statistics")
-
+@mcp.custom_route("/stats", methods=["GET"])
+async def http_server_stats(request: Request) -> JSONResponse:  # pylint: disable=unused-argument
+    """Server statistics for monitoring."""
     try:
-        from vectara_mcp.connection_manager import connection_manager
-
         stats = {
             "connection_manager": connection_manager.get_stats(),
             "server_info": {
                 "version": __version__,
-                "transport": "http",  # Could be made dynamic
                 "auth_enabled": bool(_auth_required)
             }
         }
-
-        return stats
-    except Exception as e:
-        return {"error": _format_error("server stats", e)}
+        return JSONResponse(stats)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 # Query tool
+# pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
 @mcp.tool()
 async def ask_vectara(
     query: str,
@@ -493,26 +437,26 @@ async def ask_vectara(
     response_language: str = "eng",
 ) -> dict:
     """
-    Run a RAG query using Vectara, returning search results with a generated response.
+    Run a RAG query using Vectara, returning search results with generated response.
 
     Args:
         query: str, The user query to run - required.
-        corpus_keys: list[str], List of Vectara corpus keys to use for the search - required. Please ask the user to provide one or more corpus keys.
-        n_sentences_before: int, Number of sentences before the answer to include in the context - optional, default is 2.
-        n_sentences_after: int, Number of sentences after the answer to include in the context - optional, default is 2.
-        lexical_interpolation: float, The amount of lexical interpolation to use - optional, default is 0.005.
-        max_used_search_results: int, The maximum number of search results to use - optional, default is 10.
-        generation_preset_name: str, The name of the generation preset to use - optional, default is "vectara-summary-table-md-query-ext-jan-2025-gpt-4o".
-        response_language: str, The language of the response - optional, default is "eng".
+        corpus_keys: list[str], List of Vectara corpus keys to use. Required.
+        n_sentences_before: int, Sentences before answer for context. Default 2.
+        n_sentences_after: int, Sentences after answer for context. Default 2.
+        lexical_interpolation: float, Lexical interpolation amount. Default 0.005.
+        max_used_search_results: int, Max search results to use. Default 10.
+        generation_preset_name: str, Generation preset name.
+        response_language: str, Response language. Default "eng".
 
     Note: API key must be configured first using 'setup_vectara_api_key' tool
 
     Returns:
         dict: Structured response containing:
             - "summary": Generated AI summary with markdown citations
-            - "citations": List of citation objects with score, text, and metadata
-            - "factual_consistency_score": Score indicating factual consistency (if available)
-        On error, returns dict with "error" key containing error message.
+            - "citations": List of citation objects with score, text, metadata
+            - "factual_consistency_score": Score if available
+        On error, returns dict with "error" key.
     """
     # Validate parameters
     validation_error = _validate_common_parameters(query, corpus_keys)
@@ -570,11 +514,12 @@ async def ask_vectara(
 
         return response
 
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         return {"error": _format_error("Vectara RAG query", e)}
 
 
 # Query tool
+# pylint: disable=too-many-arguments,too-many-positional-arguments
 @mcp.tool()
 async def search_vectara(
     query: str,
@@ -589,18 +534,18 @@ async def search_vectara(
 
     Args:
         query: str, The user query to run - required.
-        corpus_keys: list[str], List of Vectara corpus keys to use for the search - required. Please ask the user to provide one or more corpus keys.
-        n_sentences_before: int, Number of sentences before the answer to include in the context - optional, default is 2.
-        n_sentences_after: int, Number of sentences after the answer to include in the context - optional, default is 2.
-        lexical_interpolation: float, The amount of lexical interpolation to use - optional, default is 0.005.
+        corpus_keys: list[str], List of Vectara corpus keys to use. Required.
+        n_sentences_before: int, Sentences before answer for context. Default 2.
+        n_sentences_after: int, Sentences after answer for context. Default 2.
+        lexical_interpolation: float, Lexical interpolation amount. Default 0.005.
 
     Note: API key must be configured first using 'setup_vectara_api_key' tool
 
     Returns:
         dict: Raw search results from Vectara API containing:
-            - "search_results": List of search result objects with scores, text, and metadata
+            - "search_results": List of result objects with scores, text, metadata
             - Additional response metadata from the API
-        On error, returns dict with "error" key containing error message.
+        On error, returns dict with "error" key.
     """
     # Validate parameters
     validation_error = _validate_common_parameters(query, corpus_keys)
@@ -623,7 +568,7 @@ async def search_vectara(
         result = await _call_vectara_query(payload, ctx)
         return result
 
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         return {"error": _format_error("Vectara semantic search query", e)}
 
 
@@ -635,12 +580,12 @@ async def correct_hallucinations(
     query: str = "",
 ) -> dict:
     """
-    Identify and correct hallucinations in generated text using Vectara's hallucination correction API.
+    Identify and correct hallucinations in generated text using Vectara API.
 
     Args:
-        generated_text: str, The generated text to analyze for hallucinations - required.
-        documents: list[str], List of source documents to compare against - required.
-        query: str, The original user query that led to the generated text - optional.
+        generated_text: str, The text to analyze for hallucinations - required.
+        documents: list[str], Source documents to compare against - required.
+        query: str, The original user query - optional.
 
     Note: API key must be configured first using 'setup_vectara_api_key' tool
 
@@ -651,7 +596,7 @@ async def correct_hallucinations(
                 * "original_text": The hallucinated content
                 * "corrected_text": The factually accurate replacement
                 * "explanation": Detailed reason for the correction
-        On error, returns dict with "error" key containing error message.
+        On error, returns dict with "error" key.
     """
     # Validate parameters
     if not generated_text:
@@ -685,7 +630,7 @@ async def correct_hallucinations(
             "hallucination correction"
         )
 
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         return {"error": _format_error("hallucination correction", e)}
 
 
@@ -696,17 +641,17 @@ async def eval_factual_consistency(
     ctx: Context,
 ) -> dict:
     """
-    Evaluate the factual consistency of generated text against source documents using Vectara's dedicated factual consistency API.
+    Evaluate factual consistency of text against source documents using Vectara.
 
     Args:
-        generated_text: str, The generated text to evaluate for factual consistency - required.
-        documents: list[str], List of source documents to compare against - required.
+        generated_text: str, The text to evaluate for factual consistency.
+        documents: list[str], Source documents to compare against - required.
 
     Note: API key must be configured first using 'setup_vectara_api_key' tool
 
     Returns:
-        dict: Structured response containing factual consistency evaluation score.
-        On error, returns dict with "error" key containing error message.
+        dict: Response containing factual consistency evaluation score.
+        On error, returns dict with "error" key.
     """
     # Validate parameters
     if not generated_text:
@@ -737,14 +682,14 @@ async def eval_factual_consistency(
             "factual consistency evaluation"
         )
 
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         return {"error": _format_error("factual consistency evaluation", e)}
 
 
 def _setup_signal_handlers():
     """Setup signal handlers for graceful shutdown."""
-    def signal_handler(signum, frame):
-        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+    def signal_handler(signum, _frame):
+        logger.info("Received signal %s, initiating graceful shutdown...", signum)
         # Schedule cleanup in the event loop
         if hasattr(asyncio, 'get_running_loop'):
             try:
@@ -769,25 +714,20 @@ def main():
     parser = argparse.ArgumentParser(description="Vectara MCP Server")
     parser.add_argument(
         '--transport',
-        default='http',
-        choices=['http', 'sse', 'stdio'],
-        help='Transport protocol (default: http for security)'
+        default='sse',
+        choices=['stdio', 'sse', 'streamable-http'],
+        help='Transport protocol: stdio, sse (default), or streamable-http'
     )
     parser.add_argument(
         '--host',
         default='127.0.0.1',
-        help='Host address for HTTP/SSE transport (default: 127.0.0.1)'
+        help='Host address for network transports (default: 127.0.0.1)'
     )
     parser.add_argument(
         '--port',
         type=int,
         default=8000,
-        help='Port for HTTP/SSE transport (default: 8000)'
-    )
-    parser.add_argument(
-        '--stdio',
-        action='store_true',
-        help='Use STDIO transport (less secure, for local development only)'
+        help='Port for network transports (default: 8000)'
     )
     parser.add_argument(
         '--no-auth',
@@ -796,35 +736,38 @@ def main():
     )
     parser.add_argument(
         '--path',
-        default='/sse',
-        help='Path for SSE endpoint (default: /sse)'
+        default='/sse/messages',
+        help='Path for SSE endpoint (default: /sse/messages)'
     )
 
     args = parser.parse_args()
 
-    # Override transport if --stdio flag is used
-    if args.stdio:
-        args.transport = 'stdio'
-
     # Configure authentication based on transport and flags
     auth_enabled = args.transport != 'stdio' and not args.no_auth
 
+    # Update MCP server settings with runtime configuration
+    if args.transport != 'stdio':
+        mcp.settings.host = args.host
+        mcp.settings.port = args.port
+        mcp.settings.sse_path = args.path
+
     # Display startup information
     if args.transport == 'stdio':
-        print("⚠️  Warning: STDIO transport is less secure. Use only for local development.", file=sys.stderr)
-        print("Starting Vectara MCP Server (STDIO mode)...", file=sys.stderr)
+        logger.warning("STDIO transport is less secure. Use only for local dev.")
+        logger.info("Starting Vectara MCP Server (STDIO mode)...")
         mcp.run()
         sys.exit(0)
     else:
         if args.no_auth:
-            print("⚠️  WARNING: Authentication disabled. NEVER use in production!", file=sys.stderr)
+            logger.warning("Authentication disabled. NEVER use in production!")
 
-        transport_name = "HTTP" if args.transport == 'http' else "SSE"
+        transport_name = "Streamable HTTP" if args.transport == 'streamable-http' else "SSE"
         auth_status = "enabled" if auth_enabled else "DISABLED"
+        path_suffix = args.path if args.transport == 'sse' else '/mcp'
 
-        print(f"Starting Vectara MCP Server ({transport_name} mode)", file=sys.stderr)
-        print(f"Server: http://{args.host}:{args.port}{args.path if args.transport == 'sse' else ''}", file=sys.stderr)
-        print(f"Authentication: {auth_status}", file=sys.stderr)
+        logger.info("Starting Vectara MCP Server (%s mode)", transport_name)
+        logger.info("Server: http://%s:%s%s", args.host, args.port, path_suffix)
+        logger.info("Authentication: %s", auth_status)
 
         # Initialize authentication middleware
         initialize_auth(auth_enabled)
@@ -833,10 +776,10 @@ def main():
         _setup_signal_handlers()
         _setup_cleanup()
 
-        if args.transport == 'http':
-            mcp.run(transport='http', host=args.host, port=args.port)
-        else:  # sse
-            mcp.run(transport='sse', host=args.host, port=args.port, path=args.path)
+        if args.transport == 'sse':
+            mcp.run(transport='sse', mount_path=args.path)
+        else:  # streamable-http
+            mcp.run(transport='streamable-http')
 
         sys.exit(0)
 

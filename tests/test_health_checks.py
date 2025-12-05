@@ -3,9 +3,10 @@ Tests for health check functionality.
 """
 
 import pytest
-import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from starlette.testclient import TestClient
 
 from vectara_mcp.health_checks import (
     HealthChecker,
@@ -33,7 +34,6 @@ class TestHealthChecker:
         assert result["status"] == HealthStatus.HEALTHY.value
         assert "timestamp" in result
         assert "uptime_seconds" in result
-        assert result["version"] == "0.2.0"
         assert result["service"] == "vectara-mcp-server"
         assert result["uptime_seconds"] >= 0
 
@@ -366,3 +366,91 @@ class TestHealthCheckEndpoints:
             result = await get_detailed_health()
 
             assert result["status"] == HealthStatus.HEALTHY.value
+
+
+class TestHTTPHealthEndpoints:
+    """Test HTTP health check endpoints."""
+
+    @pytest.fixture
+    def client(self):
+        """Create a test client for HTTP endpoints."""
+        from vectara_mcp.server import mcp
+        # Get the SSE app which includes custom routes
+        app = mcp.sse_app()
+        return TestClient(app)
+
+    def test_health_endpoint(self, client):
+        """Test /health endpoint returns liveness status."""
+        with patch('vectara_mcp.server.get_liveness') as mock_liveness:
+            mock_liveness.return_value = {
+                "status": "healthy",
+                "uptime_seconds": 100.0,
+                "version": "1.0.0",
+                "service": "vectara-mcp-server"
+            }
+
+            response = client.get("/health")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "healthy"
+            assert "uptime_seconds" in data
+
+    def test_ready_endpoint_healthy(self, client):
+        """Test /ready endpoint when healthy."""
+        with patch('vectara_mcp.server.get_readiness') as mock_readiness:
+            mock_readiness.return_value = {
+                "status": "healthy",
+                "checks": []
+            }
+
+            response = client.get("/ready")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "healthy"
+
+    def test_ready_endpoint_unhealthy(self, client):
+        """Test /ready endpoint when unhealthy returns 503."""
+        with patch('vectara_mcp.server.get_readiness') as mock_readiness:
+            mock_readiness.return_value = {
+                "status": "unhealthy",
+                "checks": []
+            }
+
+            response = client.get("/ready")
+
+            assert response.status_code == 503
+            data = response.json()
+            assert data["status"] == "unhealthy"
+
+    def test_detailed_health_endpoint(self, client):
+        """Test /health/detailed endpoint."""
+        with patch('vectara_mcp.server.get_detailed_health') as mock_detailed:
+            mock_detailed.return_value = {
+                "status": "healthy",
+                "checks": [],
+                "metrics": {"memory": {"rss_mb": 50.0}}
+            }
+
+            response = client.get("/health/detailed")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "healthy"
+            assert "metrics" in data
+
+    def test_stats_endpoint(self, client):
+        """Test /stats endpoint."""
+        with patch('vectara_mcp.server.connection_manager') as mock_conn:
+            mock_conn.get_stats.return_value = {
+                "session_initialized": True,
+                "circuit_breaker": {"state": "closed"}
+            }
+
+            response = client.get("/stats")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert "connection_manager" in data
+            assert "server_info" in data
