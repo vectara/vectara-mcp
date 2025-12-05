@@ -1,3 +1,4 @@
+import logging
 import pytest
 import json
 import os
@@ -221,6 +222,7 @@ class TestVectaraTools:
     @patch('sys.argv', ['test'])
     def test_main_default_transport(self, caplog):
         """Test main function with default transport (SSE)"""
+        caplog.set_level(logging.INFO)
         with patch('vectara_mcp.server.mcp.run') as mock_run:
             with pytest.raises(SystemExit):
                 main()
@@ -233,6 +235,7 @@ class TestVectaraTools:
     @patch('sys.argv', ['test', '--transport', 'sse', '--port', '9000', '--host', '0.0.0.0'])
     def test_main_sse_transport(self, caplog):
         """Test main function with SSE transport and custom host/port"""
+        caplog.set_level(logging.INFO)
         with patch('vectara_mcp.server.mcp.run') as mock_run:
             with pytest.raises(SystemExit):
                 main()
@@ -246,6 +249,7 @@ class TestVectaraTools:
     @patch('sys.argv', ['test', '--transport', 'streamable-http', '--port', '9000'])
     def test_main_streamable_http_transport(self, caplog):
         """Test main function with Streamable HTTP transport"""
+        caplog.set_level(logging.INFO)
         with patch('vectara_mcp.server.mcp.run') as mock_run:
             with pytest.raises(SystemExit):
                 main()
