@@ -14,6 +14,10 @@ The Model Context Protocol (MCP) is an open standard that enables AI systems to 
 
 Vectara-MCP provides any agentic application with access to fast, reliable RAG with reduced hallucination, powered by Vectara's Trusted RAG platform, through the MCP protocol.
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/vectara-vectara-mcp).
+
 ## Installation
 
 You can install the package directly from PyPI:
