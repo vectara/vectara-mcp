@@ -6,6 +6,7 @@ import logging
 import os
 import signal
 import sys
+from urllib.parse import urlencode
 
 import aiohttp
 from mcp.server.fastmcp import FastMCP, Context
@@ -23,7 +24,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Constants
-VECTARA_BASE_URL = "https://api.vectara.io/v2"
+VECTARA_BASE_URL = os.getenv("VECTARA_BASE_URL", "https://api.vectara.io/v2")
 VHC_MODEL_NAME = "vhc-large-1.0"
 DEFAULT_LANGUAGE = "en"
 API_KEY_ERROR_MESSAGE = (
@@ -151,7 +152,7 @@ async def _handle_http_response(
     Raises:
         RuntimeError: With descriptive error message based on status code
     """
-    if response.status == 200:
+    if response.status in (200, 201):
         return await response.json()
     if response.status == 400:
         error_text = await response.text()
@@ -169,21 +170,25 @@ async def _handle_http_response(
 
 async def _make_api_request(
     url: str,
-    payload: dict,
+    payload: dict = None,
     ctx: Context = None,
     api_key_override: str = None,
-    error_context: str = "API"
+    error_context: str = "API",
+    method: str = "POST",
+    params: dict = None
 ) -> dict:
-    """Generic HTTP POST request with progress reporting and error handling.
+    """Generic HTTP request with progress reporting and error handling.
 
     Uses persistent connection pooling and circuit breaker pattern.
 
     Args:
         url: The API endpoint URL
-        payload: Request payload
+        payload: Request payload (for POST/PATCH/PUT)
         ctx: MCP context for progress reporting
         api_key_override: Optional API key override for testing
         error_context: Context for error messages
+        method: HTTP method (GET, POST, PATCH, PUT, DELETE)
+        params: Query parameters (for GET requests)
 
     Returns:
         dict: API response data
@@ -201,19 +206,25 @@ async def _make_api_request(
         await ctx.report_progress(0, 1)
 
     try:
-        # Use persistent session with circuit breaker protection
-        response = await conn_manager.request(
-            method='POST',
-            url=url,
-            headers=headers,
-            json_data=payload
-        )
+        request_kwargs = {
+            "method": method.upper(),
+            "url": url,
+            "headers": headers,
+        }
+        if payload is not None and method.upper() in ("POST", "PATCH", "PUT"):
+            request_kwargs["json_data"] = payload
+        if params:
+            request_kwargs["url"] = f"{url}?{urlencode(params)}"
+
+        response = await conn_manager.request(**request_kwargs)
 
         if ctx:
             await ctx.report_progress(1, 1)
 
         # Handle response using existing logic
         async with response:
+            if method.upper() == "DELETE" and response.status == 204:
+                return {"status": "deleted"}
             return await _handle_http_response(response, error_context)
 
     except Exception as e:  # pylint: disable=broad-exception-caught
@@ -711,6 +722,7 @@ def _setup_cleanup():
 
 def main():
     """Command-line interface for starting the Vectara MCP Server."""
+    import vectara_mcp.agents  # noqa: F401  — registers agent tools with mcp
     parser = argparse.ArgumentParser(description="Vectara MCP Server")
     parser.add_argument(
         '--transport',
